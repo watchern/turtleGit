@@ -6,5 +6,5 @@ out
 *.log
 .DS_Store
 .workbuddy
-.vscode*
+.vscode
 .history
