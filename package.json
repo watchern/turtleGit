@@ -1,0 +1,327 @@
+{
+  "name": "turtlegit",
+  "displayName": "TurtleGit - TortoiseGit 风格的跨平台 Git 增强",
+  "description": "在 VSCode 中复刻 TortoiseGit 的提交、浏览、对比体验：独立浮窗对话框、提交图、按块勾选提交。纯插件实现，不依赖 TortoiseGit，Linux/macOS/Windows 通用。",
+  "version": "0.2.2",
+  "publisher": "turtlegit",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/turtlegit/turtlegit.git"
+  },
+  "engines": {
+    "vscode": "^1.100.0"
+  },
+  "categories": [
+    "SCM Providers",
+    "Other"
+  ],
+  "keywords": [
+    "git",
+    "tortoisegit",
+    "commit",
+    "log",
+    "diff"
+  ],
+  "activationEvents": [
+    "workspaceContains:.git",
+    "onCommand:turtlegit.commit",
+    "onCommand:turtlegit.commitPath",
+    "onCommand:turtlegit.log",
+    "onCommand:turtlegit.diff",
+    "onCommand:turtlegit.graph",
+    "onCommand:turtlegit.stash",
+    "onCommand:turtlegit.blame",
+    "onCommand:turtlegit.refresh",
+    "onCommand:turtlegit.openFloating",
+    "onCommand:turtlegit.commitFloating",
+    "onCommand:turtlegit.pull",
+    "onCommand:turtlegit.push",
+    "onCommand:turtlegit.expandAll",
+    "onCommand:turtlegit.collapseAll",
+    "onCommand:turtlegit.toggleViewMode",
+    "onCommand:turtlegit.viewModeTree",
+    "onCommand:turtlegit.viewModeList",
+    "onView:turtlegit.status"
+  ],
+  "main": "./dist/extension.js",
+  "contributes": {
+    "commands": [
+      {
+        "command": "turtlegit.commit",
+        "title": "提交… (Commit)",
+        "category": "TurtleGit",
+        "icon": "$(check)"
+      },
+      {
+        "command": "turtlegit.commitPath",
+        "title": "在此提交… (Commit Here)",
+        "category": "TurtleGit"
+      },
+      {
+        "command": "turtlegit.log",
+        "title": "显示日志… (Show Log)",
+        "category": "TurtleGit",
+        "icon": "$(git-commit)"
+      },
+      {
+        "command": "turtlegit.diff",
+        "title": "比较差异… (Diff)",
+        "category": "TurtleGit",
+        "icon": "$(diff)"
+      },
+      {
+        "command": "turtlegit.graph",
+        "title": "版本分支图… (Revision Graph)",
+        "category": "TurtleGit",
+        "icon": "$(git-branch)"
+      },
+      {
+        "command": "turtlegit.stash",
+        "title": "存储… (Stash)",
+        "category": "TurtleGit",
+        "icon": "$(archive)"
+      },
+      {
+        "command": "turtlegit.blame",
+        "title": "追溯… (Blame)",
+        "category": "TurtleGit",
+        "icon": "$(person)"
+      },
+      {
+        "command": "turtlegit.refresh",
+        "title": "刷新 (Refresh)",
+        "category": "TurtleGit",
+        "icon": "$(refresh)"
+      },
+      {
+        "command": "turtlegit.openFloating",
+        "title": "在独立窗口中打开 (Open in Floating Window)",
+        "category": "TurtleGit"
+      },
+      {
+        "command": "turtlegit.commitFloating",
+        "title": "提交（弹窗）… (Commit in Floating Window)",
+        "category": "TurtleGit",
+        "icon": "$(window)"
+      },
+      {
+        "command": "turtlegit.pull",
+        "title": "拉取 (Pull)",
+        "category": "TurtleGit",
+        "icon": "$(arrow-down)"
+      },
+      {
+        "command": "turtlegit.push",
+        "title": "推送 (Push)",
+        "category": "TurtleGit",
+        "icon": "$(arrow-up)"
+      },
+      {
+        "command": "turtlegit.expandAll",
+        "title": "全部展开 (Expand All)",
+        "category": "TurtleGit",
+        "icon": "$(expand-all)"
+      },
+      {
+        "command": "turtlegit.collapseAll",
+        "title": "全部折叠 (Collapse All)",
+        "category": "TurtleGit",
+        "icon": "$(collapse-all)"
+      },
+      {
+        "command": "turtlegit.toggleViewMode",
+        "title": "切换树/列表视图 (Toggle Tree/List View)",
+        "category": "TurtleGit"
+      },
+      {
+        "command": "turtlegit.viewModeTree",
+        "title": "树结构查看 (Tree View)",
+        "category": "TurtleGit",
+        "icon": "$(list-tree)"
+      },
+      {
+        "command": "turtlegit.viewModeList",
+        "title": "列表形式查看 (List View)",
+        "category": "TurtleGit",
+        "icon": "$(list-flat)"
+      }
+    ],
+    "menus": {
+      "explorer/context": [
+        {
+          "command": "turtlegit.commitPath",
+          "when": "resourceLangId != '' || !explorerResourceIsFolder",
+          "group": "2_turtlegit@1"
+        },
+        {
+          "command": "turtlegit.log",
+          "when": "!explorerResourceIsFolder",
+          "group": "2_turtlegit@2"
+        },
+        {
+          "command": "turtlegit.diff",
+          "when": "!explorerResourceIsFolder",
+          "group": "2_turtlegit@3"
+        },
+        {
+          "command": "turtlegit.blame",
+          "when": "!explorerResourceIsFolder",
+          "group": "2_turtlegit@4"
+        },
+        {
+          "command": "turtlegit.graph",
+          "group": "2_turtlegit@5"
+        },
+        {
+          "command": "turtlegit.stash",
+          "group": "2_turtlegit@6"
+        }
+      ],
+      "editor/context": [
+        {
+          "command": "turtlegit.commitPath",
+          "group": "2_turtlegit@1"
+        },
+        {
+          "command": "turtlegit.log",
+          "group": "2_turtlegit@2"
+        },
+        {
+          "command": "turtlegit.diff",
+          "group": "2_turtlegit@3"
+        },
+        {
+          "command": "turtlegit.blame",
+          "group": "2_turtlegit@4"
+        }
+      ],
+      "scm/resourceState/context": [
+        {
+          "command": "turtlegit.commitPath",
+          "group": "2_turtlegit@1"
+        },
+        {
+          "command": "turtlegit.diff",
+          "group": "2_turtlegit@2"
+        }
+      ],
+      "editor/title/run": [
+        {
+          "command": "turtlegit.commit",
+          "group": "navigation@-1"
+        }
+      ],
+      "view/title": [
+        {
+          "command": "turtlegit.expandAll",
+          "when": "view == turtlegit.status && !turtlegit.expanded",
+          "group": "navigation@1"
+        },
+        {
+          "command": "turtlegit.collapseAll",
+          "when": "view == turtlegit.status && turtlegit.expanded",
+          "group": "navigation@1"
+        },
+        {
+          "command": "turtlegit.viewModeTree",
+          "when": "view == turtlegit.status && turtlegit.viewMode == 'list'",
+          "group": "navigation@2"
+        },
+        {
+          "command": "turtlegit.viewModeList",
+          "when": "view == turtlegit.status && turtlegit.viewMode == 'tree'",
+          "group": "navigation@2"
+        },
+        {
+          "command": "turtlegit.commitFloating",
+          "when": "view == turtlegit.status",
+          "group": "2_more@1"
+        },
+        {
+          "command": "turtlegit.pull",
+          "when": "view == turtlegit.status",
+          "group": "2_more@2"
+        },
+        {
+          "command": "turtlegit.push",
+          "when": "view == turtlegit.status",
+          "group": "2_more@3"
+        }
+      ]
+    },
+    "keybindings": [
+      {
+        "command": "turtlegit.refresh",
+        "key": "f5",
+        "when": "webviewFocus"
+      }
+    ],
+    "configuration": {
+      "title": "TurtleGit",
+      "properties": {
+        "turtlegit.gitPath": {
+          "type": "string",
+          "default": "",
+          "description": "git 可执行文件路径。留空则自动探测（PATH、TortoiseGit 自带 git、Git for Windows）。"
+        },
+        "turtlegit.panelMode": {
+          "type": "string",
+          "enum": [
+            "auto",
+            "floating",
+            "embedded"
+          ],
+          "enumDescriptions": [
+            "自动：优先浮动独立窗口，不可用时降级为编辑器内标签页",
+            "浮动窗口：将对话框移到独立 OS 窗口（最接近 TortoiseGit）",
+            "内嵌：固定在编辑器区域标签页（最稳）"
+          ],
+          "default": "auto",
+          "description": "对话框的打开方式。"
+        },
+        "turtlegit.autoRefresh": {
+          "type": "boolean",
+          "default": true,
+          "description": "仓库变化时自动刷新对话框内容。"
+        },
+        "turtlegit.showStatusDecorations": {
+          "type": "boolean",
+          "default": true,
+          "description": "在资源管理器中显示文件状态角标（复刻 TortoiseGit 图标覆盖）。"
+        }
+      }
+    },
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "turtlegit",
+          "title": "TurtleGit",
+          "icon": "resources/turtle.svg"
+        }
+      ]
+    },
+    "views": {
+      "turtlegit": [
+        {
+          "id": "turtlegit.status",
+          "name": ""
+        }
+      ]
+    }
+  },
+  "scripts": {
+    "compile": "node esbuild.js",
+    "watch": "node esbuild.js --watch",
+    "build": "node esbuild.js --production",
+    "test": "esbuild test/smoke.ts --bundle --platform=node --format=cjs --outfile=dist-test/smoke.cjs && node dist-test/smoke.cjs",
+    "package": "vsce package"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.0",
+    "@types/vscode": "1.100.0",
+    "@vscode/vsce": "^4.0.0",
+    "esbuild": "^0.24.0",
+    "typescript": "^5.6.0"
+  }
+}
