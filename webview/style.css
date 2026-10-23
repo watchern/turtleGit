@@ -928,7 +928,7 @@ tr.d-del .d-text::before {
   display: flex;
   align-items: center;
   gap: 6px;
-  padding: 4px 8px;
+  padding: 4px 0px;
   flex-wrap: wrap;
   border-bottom: 1px solid var(--border);
 }
@@ -965,7 +965,7 @@ button.icon:hover {
 }
 
 .sc-list .file-row {
-  padding: 3px 8px;
+  padding: 3px 0px;
   gap: 6px;
 }
 
@@ -980,7 +980,7 @@ button.icon:hover {
 }
 
 .sc-foot .sel-stat {
-  padding: 4px 8px 0;
+  padding: 4px 0px 0;
 }
 
 .sc-foot .message {
