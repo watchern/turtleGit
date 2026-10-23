@@ -1,0 +1,1005 @@
+/* TurtleGit webview 样式：跟随 VSCode 主题变量，布局复刻 TortoiseGit 对话框 */
+
+:root {
+  --bg: var(--vscode-editor-background, #1e1e1e);
+  --fg: var(--vscode-editor-foreground, #cccccc);
+  --muted: var(--vscode-descriptionForeground, #888888);
+  --border: var(--vscode-panel-border, #444444);
+  --input-bg: var(--vscode-input-background, #3c3c3c);
+  --input-fg: var(--vscode-input-foreground, #cccccc);
+  --input-border: var(--vscode-input-border, #555555);
+  --btn-bg: var(--vscode-button-background, #0e639c);
+  --btn-fg: var(--vscode-button-foreground, #ffffff);
+  --btn-hover: var(--vscode-button-hoverBackground, #1177bb);
+  --btn-sec-bg: var(--vscode-button-secondaryBackground, #3a3d41);
+  --btn-sec-fg: var(--vscode-button-secondaryForeground, #cccccc);
+  --btn-sec-hover: var(--vscode-button-secondaryHoverBackground, #45494e);
+  --hover: var(--vscode-list-hoverBackground, #2a2d2e);
+  --active: var(--vscode-list-activeSelectionBackground, #04395e);
+  --active-fg: var(--vscode-list-activeSelectionForeground, #ffffff);
+  --badge-bg: var(--vscode-badge-background, #4d4d4d);
+  --badge-fg: var(--vscode-badge-foreground, #ffffff);
+  --add: var(--vscode-gitDecoration-addedResourceForeground, #81b88b);
+  --mod: var(--vscode-gitDecoration-modifiedResourceForeground, #e2c08d);
+  --del: var(--vscode-gitDecoration-deletedResourceForeground, #c74e39);
+  --conflict: var(--vscode-gitDecoration-conflictingResourceForeground, #e4676b);
+  --untracked: var(--vscode-gitDecoration-untrackedResourceForeground, #73c991);
+  --focus: var(--vscode-focusBorder, #007fd4);
+  --diff-add-bg: color-mix(in srgb, var(--add) 15%, transparent);
+  --diff-del-bg: color-mix(in srgb, var(--del) 15%, transparent);
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  height: 100%;
+  overflow: hidden;
+  font-family: var(--vscode-font-family, sans-serif);
+  font-size: 13px;
+  color: var(--fg);
+  background: var(--bg);
+}
+
+#app {
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+}
+
+/* ---------- 工具栏 ---------- */
+.toolbar {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 10px;
+  border-bottom: 1px solid var(--border);
+  flex-wrap: wrap;
+}
+
+.toolbar .flex {
+  flex: 1;
+}
+
+.toolbar .sep {
+  width: 1px;
+  height: 18px;
+  background: var(--border);
+  margin: 0 2px;
+}
+
+button {
+  font-family: inherit;
+  font-size: 12px;
+  padding: 4px 12px;
+  border: none;
+  border-radius: 2px;
+  cursor: pointer;
+  background: var(--btn-sec-bg);
+  color: var(--btn-sec-fg);
+}
+
+button:hover {
+  background: var(--btn-sec-hover);
+}
+
+button.primary {
+  background: var(--btn-bg);
+  color: var(--btn-fg);
+}
+
+button.primary:hover {
+  background: var(--btn-hover);
+}
+
+button:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+button.mini {
+  padding: 2px 8px;
+  font-size: 12px;
+}
+
+.chk {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 12px;
+  color: var(--muted);
+  white-space: nowrap;
+}
+
+.filter {
+  font-family: inherit;
+  font-size: 12px;
+  padding: 3px 8px;
+  width: 120px;
+  background: var(--input-bg);
+  color: var(--input-fg);
+  border: 1px solid var(--input-border);
+  border-radius: 2px;
+}
+
+.filter:focus {
+  outline: 1px solid var(--focus);
+}
+
+.repo-name,
+.page-info,
+.diff-title {
+  font-size: 12px;
+  color: var(--muted);
+  max-width: 40vw;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* ---------- 分栏 ---------- */
+.split {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+}
+
+.pane {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+}
+
+.pane.left {
+  width: 320px;
+  min-width: 200px;
+  border-right: 1px solid var(--border);
+  resize: horizontal;
+  overflow: hidden;
+}
+
+.pane.right {
+  flex: 1;
+}
+
+.log-split .pane.left {
+  width: 380px;
+}
+
+.pane-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 10px;
+  font-size: 12px;
+  font-weight: 500;
+  background: color-mix(in srgb, var(--border) 25%, transparent);
+  border-bottom: 1px solid var(--border);
+}
+
+.pane-head .hint,
+.pane-head .count,
+.pane-head .diff-stat {
+  font-weight: 400;
+  font-size: 11px;
+  color: var(--muted);
+}
+
+.pane-head .diff-stat {
+  font-family: var(--vscode-editor-font-family, monospace);
+}
+
+/* ---------- 文件列表 ---------- */
+.file-list,
+.commit-list {
+  flex: 1;
+  overflow: auto;
+  min-height: 0;
+}
+
+.file-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 3px 10px;
+  cursor: default;
+  user-select: none;
+  white-space: nowrap;
+}
+
+.file-row:hover {
+  background: var(--hover);
+}
+
+.file-row.active {
+  background: var(--active);
+  color: var(--active-fg);
+}
+
+.file-row .file-check {
+  flex: none;
+  margin: 0;
+}
+
+.file-row .file-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.file-row .file-dir {
+  margin-left: auto;
+  font-size: 11px;
+  color: var(--muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  direction: rtl;
+  max-width: 45%;
+}
+
+.file-row.active .file-dir {
+  color: var(--active-fg);
+}
+
+.file-row .rename {
+  color: var(--muted);
+  font-size: 11px;
+  margin-left: 6px;
+}
+
+/* 每文件增删行数徽标（+N -M，等宽字体，新增绿/删除红） */
+.file-stat {
+  flex: none;
+  font-family: var(--vscode-editor-font-family, monospace);
+  font-size: 11px;
+  white-space: nowrap;
+}
+
+.file-stat .add,
+.sel-stat .add {
+  color: var(--add);
+}
+
+.file-stat .del,
+.sel-stat .del {
+  color: var(--del);
+}
+
+/* 树形模式目录行 */
+.dir-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 10px;
+  cursor: default;
+  user-select: none;
+  white-space: nowrap;
+  font-weight: 500;
+}
+
+.dir-row:hover {
+  background: var(--hover);
+}
+
+/* twisty：SVG chevron，展开态旋转 90°（尺寸加大保证可读性） */
+.dir-twisty {
+  flex: none;
+  width: 14px;
+  height: 14px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--fg);
+  cursor: pointer;
+  transition: transform 0.12s ease;
+}
+
+.dir-twisty.open {
+  transform: rotate(90deg);
+}
+
+.dir-twisty svg {
+  display: block;
+}
+
+.dir-row .dir-check {
+  flex: none;
+  margin: 0;
+}
+
+.dir-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.dir-count {
+  margin-left: auto;
+  font-size: 11px;
+  color: var(--muted);
+}
+
+/* 文件状态：单字母 + 彩色文字（VSCode 内置 Git 风格 M/A/D/R/T/C/U/!），中文说明在 title */
+.badge {
+  flex: none;
+  font-family: var(--vscode-editor-font-family, monospace);
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 1;
+  padding: 0 2px;
+  min-width: 12px;
+  text-align: center;
+  background: none;
+}
+
+.st-modified {
+  color: var(--mod);
+}
+
+.st-deleted {
+  color: var(--del);
+}
+
+.st-ignored {
+  color: var(--muted);
+}
+
+.st-staged {
+  color: var(--add);
+}
+
+.st-untracked {
+  color: var(--untracked);
+}
+
+.st-conflict {
+  color: var(--conflict);
+}
+
+.empty,
+.diff-empty {
+  padding: 16px;
+  color: var(--muted);
+  font-size: 12px;
+  text-align: center;
+}
+
+/* ---------- 提交信息 ---------- */
+.message-head {
+  border-top: 1px solid var(--border);
+}
+
+.message {
+  flex: none;
+  height: 30%;
+  min-height: 80px;
+  resize: vertical;
+  border: none;
+  border-top: 1px solid var(--border);
+  padding: 8px 10px;
+  font-family: var(--vscode-font-family, sans-serif);
+  font-size: 13px;
+  line-height: 1.5;
+  background: var(--input-bg);
+  color: var(--input-fg);
+  outline: none;
+}
+
+.commit-foot {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 6px 10px;
+  border-top: 1px solid var(--border);
+}
+
+/* 推挤弹性项：把提交按钮推到最右侧 */
+.commit-foot .flex {
+  flex: 1;
+}
+
+/* 选中文件统计：总数 + 总增删行数 */
+.sel-stat {
+  font-size: 11px;
+  color: var(--muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.commit-foot button.primary {
+  flex: none;
+  padding: 5px 24px;
+  font-size: 13px;
+}
+
+/* ---------- 差异视图 ---------- */
+.diff-view {
+  flex: 1;
+  overflow: auto;
+  min-height: 0;
+  border-top: 1px solid var(--border);
+  background: var(--bg);
+}
+
+.diff-view.full {
+  border-top: none;
+}
+
+.diff-table {
+  border-collapse: collapse;
+  width: 100%;
+  font-family: var(--vscode-editor-font-family, monospace);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.diff-table td {
+  padding: 0 6px;
+  white-space: pre-wrap;
+  word-break: break-all;
+  vertical-align: top;
+}
+
+.diff-table .c-no {
+  width: 44px;
+}
+
+.diff-table .c-sign {
+  width: 20px;
+}
+
+.d-no {
+  color: var(--muted);
+  text-align: right;
+  user-select: none;
+  border-right: 1px solid var(--border);
+  font-size: 11px;
+}
+
+/* 并排模式：左行号 | 左文本 | 右行号 | 右文本（左右文本间分隔线） */
+.diff-table .d-left {
+  border-right: 1px solid var(--border);
+}
+
+/* 行高亮联动：hover 或点击行号时整行（左右同 tr）微亮，不覆盖增删行底色 */
+.diff-table tbody tr:hover td {
+  background-image: linear-gradient(
+    color-mix(in srgb, var(--focus) 12%, transparent),
+    color-mix(in srgb, var(--focus) 12%, transparent)
+  );
+}
+
+.diff-table tbody tr.hl td {
+  background-image: linear-gradient(
+    color-mix(in srgb, var(--focus) 22%, transparent),
+    color-mix(in srgb, var(--focus) 22%, transparent)
+  );
+}
+
+.diff-table tbody tr:hover td.d-no,
+.diff-table tbody tr.hl td.d-no {
+  color: var(--fg);
+}
+
+/* ---------- gap 折叠行（省略的上下文，波浪线 + 可展开） ---------- */
+.d-gap td {
+  padding: 0;
+  border-top: 1px solid color-mix(in srgb, var(--border) 60%, transparent);
+  border-bottom: 1px solid color-mix(in srgb, var(--border) 60%, transparent);
+  background-color: color-mix(in srgb, var(--border) 12%, transparent);
+}
+
+.d-gap-inner {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  padding: 2px 0;
+}
+
+.d-wave {
+  color: var(--muted);
+  flex: none;
+  opacity: 0.8;
+}
+
+.diff-table .d-gap-btn {
+  background: none;
+  border: none;
+  color: var(--muted);
+  font-size: 11px;
+  cursor: pointer;
+  padding: 2px 10px;
+  border-radius: 2px;
+}
+
+.diff-table .d-gap-btn:hover:not(:disabled) {
+  color: var(--fg);
+  background: var(--hover);
+}
+
+.diff-table .d-gap-btn:disabled {
+  cursor: default;
+  opacity: 0.7;
+}
+
+.d-gap.expanded .d-gap-inner {
+  opacity: 0.55;
+}
+
+.d-hunk td {
+  background: color-mix(in srgb, var(--focus) 18%, transparent);
+  color: var(--fg);
+  padding: 2px 6px;
+  font-size: 11px;
+}
+
+.d-meta td {
+  color: var(--muted);
+  font-size: 11px;
+  padding-left: 12px;
+}
+
+tr.d-add td {
+  background: var(--diff-add-bg);
+}
+
+tr.d-del td {
+  background: var(--diff-del-bg);
+}
+
+tr.d-add .d-text::before {
+  content: '+ ';
+  color: var(--add);
+}
+
+tr.d-del .d-text::before {
+  content: '- ';
+  color: var(--del);
+}
+
+/* ---------- 提交列表 ---------- */
+.commit-row {
+  padding: 6px 10px;
+  border-bottom: 1px solid color-mix(in srgb, var(--border) 40%, transparent);
+  cursor: default;
+  user-select: none;
+}
+
+.commit-row:hover {
+  background: var(--hover);
+}
+
+.commit-row.active {
+  background: var(--active);
+  color: var(--active-fg);
+}
+
+.commit-line1 {
+  display: flex;
+  gap: 8px;
+  align-items: baseline;
+}
+
+.commit-row .hash {
+  font-family: var(--vscode-editor-font-family, monospace);
+  font-size: 11px;
+  color: var(--muted);
+  flex: none;
+}
+
+.commit-row.active .hash,
+.commit-row.active .date,
+.commit-row.active .author {
+  color: var(--active-fg);
+}
+
+.commit-row .subject {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.commit-line2 {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  margin-top: 2px;
+  font-size: 11px;
+  color: var(--muted);
+}
+
+.commit-line2 .author {
+  flex: none;
+  max-width: 120px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.refs {
+  display: flex;
+  gap: 4px;
+  flex-wrap: wrap;
+  overflow: hidden;
+}
+
+.ref {
+  font-size: 10px;
+  padding: 1px 5px;
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--focus) 30%, transparent);
+  color: var(--fg);
+  max-width: 140px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* ---------- 右键菜单 ---------- */
+.ctx-menu {
+  position: fixed;
+  z-index: 100;
+  min-width: 180px;
+  background: var(--vscode-menu-background, var(--input-bg));
+  border: 1px solid var(--border);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
+  border-radius: 4px;
+  padding: 4px 0;
+}
+
+.ctx-item {
+  padding: 5px 14px;
+  font-size: 12px;
+  cursor: default;
+}
+
+.ctx-item:hover {
+  background: var(--active);
+  color: var(--active-fg);
+}
+
+/* 带子菜单的项：右侧 › 提示 */
+.ctx-item.has-sub {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.ctx-item .ctx-more {
+  color: var(--muted);
+}
+
+.ctx-item:hover .ctx-more {
+  color: var(--active-fg);
+}
+
+/* ---------- Toast ---------- */
+.toast {
+  position: fixed;
+  right: 16px;
+  bottom: 16px;
+  z-index: 200;
+  padding: 8px 14px;
+  border-radius: 4px;
+  font-size: 12px;
+  background: var(--btn-bg);
+  color: var(--btn-fg);
+  opacity: 0;
+  transform: translateY(8px);
+  transition: opacity 0.2s, transform 0.2s;
+  max-width: 60vw;
+}
+
+.toast.error {
+  background: var(--del);
+  color: #ffffff;
+}
+
+.toast.show {
+  opacity: 1;
+  transform: translateY(0);
+}
+
+/* 滚动条 */
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+
+::-webkit-scrollbar-thumb {
+  background: color-mix(in srgb, var(--muted) 50%, transparent);
+  border-radius: 5px;
+}
+
+/* ---------- 版本分支图 ---------- */
+.graph-pane {
+  width: 300px;
+}
+
+.graph-scroll {
+  flex: 1;
+  overflow: auto;
+  min-height: 0;
+}
+
+.graph-svg {
+  display: block;
+}
+
+.graph-svg .edge {
+  stroke: var(--muted);
+  stroke-width: 1.5;
+  fill: none;
+  opacity: 0.7;
+}
+
+.graph-svg .node {
+  fill: var(--bg);
+  stroke: var(--muted);
+  stroke-width: 2;
+}
+
+.graph-svg .node.head {
+  fill: var(--add);
+  stroke: var(--add);
+}
+
+.graph-svg .gnode {
+  cursor: pointer;
+}
+
+.graph-svg .gnode:hover circle {
+  stroke: var(--focus);
+}
+
+.graph-svg .gnode.selected circle {
+  stroke: var(--focus);
+  stroke-width: 3;
+}
+
+.graph-svg .g-hash {
+  fill: var(--muted);
+  font-size: 11px;
+  font-family: var(--vscode-editor-font-family, monospace);
+}
+
+.graph-svg .badge-head rect,
+.graph-svg .badge-branch rect {
+  fill: color-mix(in srgb, var(--focus) 35%, transparent);
+}
+
+.graph-svg .badge-tag rect {
+  fill: color-mix(in srgb, var(--mod) 35%, transparent);
+}
+
+.graph-svg .badge-remote rect {
+  fill: color-mix(in srgb, var(--muted) 25%, transparent);
+}
+
+.graph-svg .badge-head text,
+.graph-svg .badge-branch text,
+.graph-svg .badge-tag text,
+.graph-svg .badge-remote text {
+  fill: var(--fg);
+  font-size: 10px;
+}
+
+.commit-detail {
+  flex: none;
+  max-height: 40%;
+  overflow: auto;
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--border);
+  font-size: 12px;
+}
+
+.detail-row {
+  display: flex;
+  gap: 10px;
+  padding: 1px 0;
+}
+
+.detail-row .k {
+  flex: none;
+  width: 56px;
+  color: var(--muted);
+}
+
+.detail-row .v {
+  word-break: break-all;
+}
+
+.detail-row .mono {
+  font-family: var(--vscode-editor-font-family, monospace);
+  font-size: 11px;
+}
+
+.detail-msg {
+  margin-top: 6px;
+  white-space: pre-wrap;
+  color: var(--fg);
+}
+
+.detail-actions {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+  margin-top: 8px;
+}
+
+.file-list.short {
+  flex: none;
+  max-height: 26%;
+}
+
+.ctx-title {
+  padding: 5px 14px;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--muted);
+  border-bottom: 1px solid var(--border);
+  margin-bottom: 4px;
+}
+
+/* ---------- Stash ---------- */
+.stash-split .pane.left {
+  width: 340px;
+}
+
+/* ---------- Blame ---------- */
+.blame-view {
+  flex: 1;
+  overflow: auto;
+  min-height: 0;
+  font-family: var(--vscode-editor-font-family, monospace);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.blame-table {
+  border-collapse: collapse;
+  width: 100%;
+}
+
+.blame-table td {
+  padding: 0 8px;
+  white-space: pre;
+  vertical-align: top;
+}
+
+.blame-row:hover {
+  background: var(--hover);
+}
+
+.blame-row.active {
+  background: var(--active);
+}
+
+.blame-row.active td {
+  color: var(--active-fg);
+}
+
+.b-line {
+  color: var(--muted);
+  text-align: right;
+  user-select: none;
+  width: 44px;
+  border-right: 1px solid var(--border);
+}
+
+.b-hash {
+  color: var(--mod);
+  width: 60px;
+  user-select: none;
+}
+
+.b-author {
+  width: 110px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  user-select: none;
+}
+
+.b-date {
+  color: var(--muted);
+  width: 84px;
+  user-select: none;
+}
+
+.b-text {
+  white-space: pre-wrap;
+  word-break: break-all;
+}
+
+/* ---------- 侧边栏提交视图（紧凑竖向布局） ---------- */
+
+.sidebar-commit {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+}
+
+.sc-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 8px;
+  flex-wrap: wrap;
+  border-bottom: 1px solid var(--border);
+}
+
+/* 图标按钮（刷新）：无边框无底色，hover 才高亮 */
+button.icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 2px;
+  background: none;
+  color: var(--fg);
+  opacity: 0.85;
+}
+
+button.icon:hover {
+  background: var(--hover);
+  opacity: 1;
+}
+
+.sc-head .flex,
+.sc-actions .flex {
+  flex: 1;
+}
+
+.sc-list {
+  min-height: 60px;
+}
+
+/* 参照 Claude Code webview：列表行 hover 通铺全宽、文字内缩 8px、4px 垂直节奏 */
+/* 窄侧边栏：隐藏文件路径列，把宽度让给文件名 */
+.sc-list .file-row .file-dir {
+  display: none;
+}
+
+.sc-list .file-row {
+  padding: 3px 8px;
+  gap: 6px;
+}
+
+.sc-list .dir-row {
+  padding-right: 8px;
+}
+
+.sc-foot {
+  display: flex;
+  flex-direction: column;
+  border-top: 1px solid var(--border);
+}
+
+.sc-foot .sel-stat {
+  padding: 4px 8px 0;
+}
+
+.sc-foot .message {
+  height: auto;
+  min-height: 56px;
+  max-height: 40vh;
+  font-size: 12px;
+  padding: 5px 8px;
+}
+
+.sc-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 8px 8px;
+  flex-wrap: wrap;
+}
+
+.sc-actions button.primary {
+  flex: none;
+  padding: 4px 16px;
+}
