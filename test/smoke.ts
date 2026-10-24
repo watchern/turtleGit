@@ -1,0 +1,661 @@
+/**
+ * 冒烟测试：在临时 git 仓库中验证 GitService 数据层。
+ * 运行：esbuild test/smoke.ts --bundle --platform=node --format=cjs --outfile=dist-test/smoke.cjs && node dist-test/smoke.cjs
+ */
+import { GitRunner, resolveGitExecutable } from '../src/host/git/GitRunner';
+import { GitService } from '../src/host/git/GitService';
+import { BranchOps } from '../src/host/git/BranchOps';
+import { parseStatus, parseLog, parseCommitFiles } from '../src/host/git/parsers';
+import { absPathIn, relPathIn, normalizeFsPath } from '../src/host/core/paths';
+import { blobUriParams, blobUriQuery, parseBlobParams } from '../src/host/core/blobUri';
+import { computeLanes } from '../webview/graph/lanes';
+import { CommitInfo, FileStatus } from '../shared/protocol';
+
+let failures = 0;
+function check(name: string, cond: boolean, extra?: unknown): void {
+  if (cond) {
+    console.log(`  PASS  ${name}`);
+  } else {
+    failures++;
+    console.error(`  FAIL  ${name}`, extra ?? '');
+  }
+}
+
+async function main(): Promise<void> {
+  const os = await import('os');
+  const fs = await import('fs');
+  const path = await import('path');
+  const cp = await import('child_process');
+
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'turtlegit-smoke-'));
+  const run = (args: string[]) => {
+    const r = cp.spawnSync('git', args, { cwd: dir, encoding: 'utf8' });
+    if (r.status !== 0) throw new Error(`git ${args.join(' ')} failed: ${r.stderr}`);
+    return r.stdout;
+  };
+  run(['init', '-b', 'main']);
+  run(['config', 'user.email', 'test@example.com']);
+  run(['config', 'user.name', '测试用户']);
+
+  fs.writeFileSync(path.join(dir, 'a.txt'), 'line1\nline2\nline3\n', 'utf8');
+  fs.mkdirSync(path.join(dir, 'src'));
+  fs.writeFileSync(path.join(dir, 'src', 'b.ts'), 'export const b = 1;\n', 'utf8');
+  fs.writeFileSync(path.join(dir, 'c.md'), '# title\n', 'utf8');
+  run(['add', '-A']);
+  run(['commit', '-m', 'feat: 初始提交']);
+
+  // 构造变更：修改、新增、删除、暂存/未暂存混合
+  fs.writeFileSync(path.join(dir, 'a.txt'), 'line1\nline2-modified\nline3\nline4\n', 'utf8');
+  fs.writeFileSync(path.join(dir, 'src', 'b.ts'), 'export const b = 2;\n', 'utf8');
+  fs.writeFileSync(path.join(dir, 'd.txt'), 'untracked file\n', 'utf8');
+  fs.rmSync(path.join(dir, 'c.md'));
+  run(['add', 'a.txt', 'src/b.ts', 'c.md']); // a.txt 与 b.ts 进暂存区，c.md 删除也进暂存区
+  fs.writeFileSync(path.join(dir, 'src', 'b.ts'), 'export const b = 3;\n', 'utf8'); // b.ts 再改一次 → 暂存+工作区
+
+  const git = new GitService(new GitRunner(resolveGitExecutable()));
+  const ops = new BranchOps(new GitRunner(resolveGitExecutable()));
+
+  console.log('== status 解析 ==');
+  const files = await git.status(dir);
+  const byPath = new Map(files.map((f) => [f.path, f]));
+  check('a.txt 已暂存修改', byPath.get('a.txt')?.index === 'modified' && byPath.get('a.txt')?.worktree === 'none');
+  check('src/b.ts 暂存+工作区双状态', byPath.get('src/b.ts')?.index === 'modified' && byPath.get('src/b.ts')?.worktree === 'modified', byPath.get('src/b.ts'));
+  check('c.md 已暂存删除', byPath.get('c.md')?.index === 'deleted');
+  check('d.txt 未跟踪', byPath.get('d.txt')?.untracked === true);
+  check('文件总数 4', files.length === 4, files.map((f) => f.path));
+
+  console.log('== diff ==');
+  const patch = await git.diffPatch(dir, 'a.txt', true);
+  check('a.txt 暂存 diff 含 -line2/+line2-modified', patch.includes('-line2') && patch.includes('+line2-modified'));
+  const patchW = await git.diffPatch(dir, 'src/b.ts', false);
+  check('b.ts 工作区 diff 含 +export const b = 3', patchW.includes('+export const b = 3'));
+
+  console.log('== 未跟踪文件 patch 与 numstat ==');
+  const up = git.untrackedPatch(dir, 'd.txt');
+  check('untrackedPatch 头部标准', up.includes('diff --git a/d.txt b/d.txt') && up.includes('--- /dev/null') && up.includes('+++ b/d.txt'), up);
+  check('untrackedPatch 全新增行', up.includes('@@ -0,0 +1,1 @@') && up.includes('+untracked file'), up);
+
+  // 无末尾换行
+  fs.writeFileSync(path.join(dir, 'nonl.txt'), 'no trailing newline', 'utf8');
+  const up2 = git.untrackedPatch(dir, 'nonl.txt');
+  check('untrackedPatch 含无末尾换行标记', up2.includes('\\ No newline at end of file') && up2.includes('+no trailing newline'), up2);
+  check('untrackedPatch 无末尾换行不产生空新增行', !/\+ ?\n/.test(up2.replace(/\\ No newline at end of file\n$/, '')), up2);
+
+  // 二进制文件
+  fs.writeFileSync(path.join(dir, 'bin.dat'), Buffer.from([0x00, 0x01, 0x02, 0x00]));
+  const up3 = git.untrackedPatch(dir, 'bin.dat');
+  check('untrackedPatch 二进制提示', up3.includes('Binary files /dev/null and b/bin.dat differ'), up3);
+
+  // 空文件
+  fs.writeFileSync(path.join(dir, 'empty.txt'), '', 'utf8');
+  const up4 = git.untrackedPatch(dir, 'empty.txt');
+  check('untrackedPatch 空文件无新增行', up4.includes('@@ -0,0 +0,0 @@') && !up4.split('\n').some((l) => l.startsWith('+') && !l.startsWith('+++')), up4);
+
+  const stats = await git.numstat(dir);
+  const statOf = (p: string) => stats.find((s) => s.path === p);
+  check('numstat a.txt +2 -1', statOf('a.txt')?.additions === 2 && statOf('a.txt')?.deletions === 1, statOf('a.txt'));
+  check('numstat src/b.ts +1 -1', statOf('src/b.ts')?.additions === 1 && statOf('src/b.ts')?.deletions === 1, statOf('src/b.ts'));
+  check('numstat c.md 删除 0 -1', statOf('c.md')?.additions === 0 && statOf('c.md')?.deletions === 1, statOf('c.md'));
+  check('numstat d.txt 未跟踪 +1 -0', statOf('d.txt')?.additions === 1 && statOf('d.txt')?.deletions === 0, statOf('d.txt'));
+  check('numstat nonl.txt +1 -0', statOf('nonl.txt')?.additions === 1 && statOf('nonl.txt')?.deletions === 0, statOf('nonl.txt'));
+  check('numstat 二进制计 0', statOf('bin.dat')?.additions === 0 && statOf('bin.dat')?.deletions === 0, statOf('bin.dat'));
+  check('numstat 空文件计 0', statOf('empty.txt')?.additions === 0 && statOf('empty.txt')?.deletions === 0, statOf('empty.txt'));
+
+  fs.rmSync(path.join(dir, 'nonl.txt'));
+  fs.rmSync(path.join(dir, 'bin.dat'));
+  fs.rmSync(path.join(dir, 'empty.txt'));
+
+  console.log('== 空仓库 numstat（无 HEAD） ==');
+  {
+    const d3 = fs.mkdtempSync(path.join(os.tmpdir(), 'turtlegit-empty-'));
+    const r3 = (args: string[]) => {
+      const r = cp.spawnSync('git', args, { cwd: d3, encoding: 'utf8' });
+      if (r.status !== 0) throw new Error(`git ${args.join(' ')} failed: ${r.stderr}`);
+      return r.stdout.trim();
+    };
+    r3(['init', '-b', 'main']);
+    r3(['config', 'user.email', 'e@e.com']);
+    r3(['config', 'user.name', '空仓库测试']);
+    fs.writeFileSync(path.join(d3, 'fresh.txt'), 'x\ny\nz\n', 'utf8');
+    const emptyStats = await git.numstat(d3);
+    check('空仓库 numstat 不抛错', Array.isArray(emptyStats));
+    check('空仓库统计未跟踪文件 3 行', emptyStats.length === 1 && emptyStats[0].additions === 3, emptyStats);
+    fs.rmSync(d3, { recursive: true, force: true });
+  }
+
+  console.log('== 部分提交（勾选子集） ==');
+  const { hash } = await git.commit({ repoRoot: dir, message: 'chore: 部分提交', files: ['src/b.ts'] });
+  check('提交返回 hash', /^[0-9a-f]{40}$/.test(hash), hash);
+  const after = await git.status(dir);
+  check('提交后 b.ts 已干净（不在变更列表）', !after.some((f) => f.path === 'src/b.ts'), after.map((f) => f.path));
+  check('提交后 a.txt 仍在暂存区', after.find((f) => f.path === 'a.txt')?.index === 'modified');
+  const headSubject = (await git.log({ repoRoot: dir, limit: 1 }))[0]?.subject;
+  check('HEAD 提交信息正确', headSubject === 'chore: 部分提交', headSubject);
+
+  console.log('== 日志与提交文件 ==');
+  const log = await git.log({ repoRoot: dir, limit: 10 });
+  check('日志 2 条', log.length === 2, log.map((c) => c.subject));
+  check('作者解析', log[0].author === '测试用户');
+  check('refs 含 main', log.some((c) => c.refs.some((r) => r.includes('main'))), log[0].refs);
+  const cf = await git.commitFiles(dir, hash);
+  check('提交文件解析 b.ts', cf.some((f) => f.path === 'src/b.ts' && f.status === 'M'), cf);
+  check('numstat 统计', cf[0]?.additions === 1 && cf[0]?.deletions === 1, cf[0]);
+
+  console.log('== 分支信息 ==');
+  const info = await git.branchInfo(dir);
+  check('分支名 main', info.name === 'main', info);
+  check('状态 clean', info.state === 'clean');
+
+  console.log('== 中文路径 ==');
+  fs.mkdirSync(path.join(dir, '中文目录'));
+  fs.writeFileSync(path.join(dir, '中文目录', '文件.txt'), '内容\n', 'utf8');
+  run(['add', '-A']);
+  run(['commit', '-m', 'test: 中文']);
+  fs.writeFileSync(path.join(dir, '中文目录', '文件.txt'), '内容2\n', 'utf8'); // 先修改再部分提交
+  const cn = await git.commit({ repoRoot: dir, message: 'test: 中文2', files: ['中文目录/文件.txt'] });
+  check('中文路径提交成功', /^[0-9a-f]{40}$/.test(cn.hash), cn);
+  const cnStatus = await git.status(dir);
+  check('中文路径提交后干净', !cnStatus.some((f) => f.path.includes('文件.txt')), cnStatus.map((f) => f.path));
+  fs.writeFileSync(path.join(dir, '中文目录', '文件.txt'), '内容3\n', 'utf8');
+  const cnPatch = await git.diffPatch(dir, '中文目录/文件.txt', false);
+  check('中文路径 diff', cnPatch.includes('内容3'), cnPatch);
+  check('中文路径出现在 status', (await git.status(dir)).some((f) => f.path === '中文目录/文件.txt'));
+
+  console.log('== 空格+中文路径 ==');
+  fs.mkdirSync(path.join(dir, 'my dir'));
+  fs.writeFileSync(path.join(dir, 'my dir', 'my file - 副本.txt'), 'space content\n', 'utf8');
+  run(['add', '-A']);
+  const spStatus = await git.status(dir);
+  const spByPath = new Map(spStatus.map((f) => [f.path, f]));
+  check('空格+中文路径完整解析（新增暂存条目）', spByPath.has('my dir/my file - 副本.txt'), [...spByPath.keys()]);
+  check('空格路径不产生根目录残片', !spByPath.has('副本.txt') && !spByPath.has('my file - 副本.txt'), [...spByPath.keys()]);
+  check(
+    '空格路径 absPath 正确',
+    spByPath.get('my dir/my file - 副本.txt')?.absPath === absPathIn(dir, 'my dir/my file - 副本.txt'),
+    spByPath.get('my dir/my file - 副本.txt'),
+  );
+  // 再改一次 → 类型 1 条目（暂存+工作区双状态）的 path 同样带空格
+  fs.writeFileSync(path.join(dir, 'my dir', 'my file - 副本.txt'), 'space content2\n', 'utf8');
+  const spStatus2 = await git.status(dir);
+  check(
+    '空格路径工作区修改解析（类型 1 条目）',
+    spStatus2.some((f) => f.path === 'my dir/my file - 副本.txt' && f.index === 'added' && f.worktree === 'modified'),
+    spStatus2.map((f) => f.path),
+  );
+  const spDiff = await git.diffPatch(dir, 'my dir/my file - 副本.txt', false);
+  check('空格路径 diff 可读', spDiff.includes('space content2'), spDiff);
+  const spNumstat = (await git.numstat(dir)).find((n) => n.path === 'my dir/my file - 副本.txt');
+  check('空格路径 numstat 命中（新文件 +1 -0）', spNumstat?.additions === 1 && spNumstat?.deletions === 0, spNumstat);
+  run(['add', '-A']); // 工作区最新内容也暂存，再整仓库提交
+  run(['commit', '-m', 'test: 空格路径']);
+  check('空格路径提交后干净', !(await git.status(dir)).some((f) => f.path.includes('副本')));
+
+  console.log('== parsers 边界 ==');
+  check('空 status 解析为空数组', parseStatus('', dir).length === 0);
+  check('空 log 解析为空数组', parseLog('').length === 0);
+  check('空 name-status 解析为空数组', parseCommitFiles('').length === 0);
+  // 空格路径：-z 模式下路径原样输出、不引号包裹；类型 1 条目必须按固定前缀切片还原
+  const spParse = parseStatus(
+    '1 .M N... 100644 100644 100644 aaa bbb my dir/my file - 副本.txt\0? untracked dir/x.txt\0',
+    dir,
+  );
+  check('parseStatus 类型1 空格路径完整还原', spParse[0]?.path === 'my dir/my file - 副本.txt', spParse[0]);
+  check('parseStatus 未跟踪空格路径完整还原', spParse[1]?.path === 'untracked dir/x.txt', spParse[1]);
+
+  console.log('== 跨平台路径工具 ==');
+  const sep = process.platform === 'win32' ? '\\' : '/';
+  check('normalizeFsPath 使用平台分隔符', normalizeFsPath('a/b\\c') === ['a', 'b', 'c'].join(sep), normalizeFsPath('a/b\\c'));
+  check('relPathIn 仓库相对路径为正斜杠', relPathIn(dir, `${dir}${sep}src${sep}b.ts`) === 'src/b.ts', relPathIn(dir, `${dir}${sep}src${sep}b.ts`));
+  check('relPathIn 仓库根本身为空串', relPathIn(dir, dir) === '');
+  check('relPathIn 仓库外返回 undefined', relPathIn(dir, `${dir}-outside${sep}x`) === undefined);
+  check('absPathIn 往返一致', absPathIn(dir, 'src/b.ts') === `${dir}${sep}src${sep}b.ts`, absPathIn(dir, 'src/b.ts'));
+  check('absPathIn 仓库根本身', absPathIn(dir, '') === dir);
+  check('absPathIn 中文路径往返', relPathIn(dir, absPathIn(dir, '中文目录/文件.txt')) === '中文目录/文件.txt');
+  check('repoRootOf 使用平台分隔符', (await git.repoRootOf(dir)) === dir, await git.repoRootOf(dir));
+
+  fs.rmSync(dir, { recursive: true, force: true });
+
+  console.log('== 分支操作层（BranchOps） ==');
+  {
+    const os2 = await import('os');
+    const fs2 = await import('fs');
+    const path2 = await import('path');
+    const cp2 = await import('child_process');
+    const d2 = fs2.mkdtempSync(path2.join(os2.tmpdir(), 'turtlegit-ops-'));
+    const r2 = (args: string[]) => {
+      const r = cp2.spawnSync('git', args, { cwd: d2, encoding: 'utf8' });
+      if (r.status !== 0) throw new Error(`git ${args.join(' ')} failed: ${r.stderr}`);
+      return r.stdout.trim();
+    };
+    r2(['init', '-b', 'main']);
+    r2(['config', 'user.email', 'ops@example.com']);
+    r2(['config', 'user.name', '操作测试']);
+    fs2.writeFileSync(path2.join(d2, 'a.txt'), 'one\ntwo\nthree\n', 'utf8');
+    r2(['add', '-A']);
+    r2(['commit', '-m', 'base']);
+
+    // 分支与标签
+    await ops.createBranch(d2, 'feature', 'HEAD', false);
+    await ops.createTag(d2, 'v1.0');
+    const branches = await ops.branches(d2);
+    check('分支列表含 feature', branches.some((b) => b.name === 'feature' && !b.isRemote));
+    check('当前分支仍是 main', branches.find((b) => b.name === 'main')?.isCurrent === true);
+    const tags = await ops.tags(d2);
+    check('标签 v1.0 存在', tags.some((t) => t.name === 'v1.0'));
+
+    // 切换 + feature 提交 + cherry-pick
+    await ops.checkout(d2, 'feature');
+    const info = await git.branchInfo(d2);
+    check('已切换到 feature', info.name === 'feature', info);
+    fs2.writeFileSync(path2.join(d2, 'feature.txt'), 'feature only\n', 'utf8');
+    r2(['add', '-A']);
+    r2(['commit', '-m', 'feat: feature only']);
+    const featHash = r2(['rev-parse', 'HEAD']);
+    await ops.checkout(d2, 'main');
+    await ops.cherryPick(d2, [featHash]);
+    check('拣选后文件存在于 main', fs2.existsSync(path2.join(d2, 'feature.txt')));
+
+    // 合并（内容相同，应自动解决）
+    await ops.merge(d2, 'feature');
+    const afterMerge = await git.status(d2);
+    check('合并后工作区干净', afterMerge.length === 0, afterMerge.map((f) => f.path));
+
+    // stash
+    fs2.writeFileSync(path2.join(d2, 'a.txt'), 'dirty content\n', 'utf8');
+    await ops.stashPush(d2, 'wip: smoke');
+    const stashes = await ops.stashList(d2);
+    check('stash 列表 1 条', stashes.length === 1, stashes);
+    check('stash 消息正确', stashes[0]?.message.includes('wip: smoke'));
+    check('stash 后工作区干净', (await git.status(d2)).length === 0);
+    await ops.stashPop(d2, 0);
+    check('pop 后修改恢复', fs2.readFileSync(path2.join(d2, 'a.txt'), 'utf8').includes('dirty content'));
+
+    // revert + reset 恢复
+    const beforeRevert = r2(['rev-parse', 'HEAD']);
+    await ops.revert(d2, featHash);
+    check('revert 后产生新提交', r2(['rev-parse', 'HEAD']) !== beforeRevert);
+    await ops.reset(d2, beforeRevert, 'hard');
+    check('hard reset 后回到原提交', r2(['rev-parse', 'HEAD']) === beforeRevert);
+    check('hard reset 后文件恢复', fs2.existsSync(path2.join(d2, 'feature.txt')));
+
+    // reflog / blame
+    const reflog = await ops.reflog(d2, 30);
+    check('reflog 非空', reflog.length > 0);
+    check('reflog 含选择器', reflog.every((e) => /^HEAD@\{\d+\}$/.test(e.selector)), reflog[0]);
+    const blame = await ops.blame(d2, 'a.txt');
+    check('blame 行数正确', blame.length === 3, blame.length);
+    check('blame 作者正确', blame.every((l) => l.author === '操作测试'));
+    // hard reset 后工作区回到 HEAD 版本（'one\ntwo\nthree'）
+    check('blame 含行内容', blame[0]?.content === 'one', blame[0]?.content);
+    check('blame 短哈希', /^[0-9a-f]{7}$/.test(blame[0]?.shortHash ?? ''));
+
+    // 分支重命名与删除
+    await ops.renameBranch(d2, 'feature', 'feature-x');
+    check('重命名分支', (await ops.branches(d2)).some((b) => b.name === 'feature-x'));
+    await ops.deleteBranch(d2, 'feature-x', true);
+    check('删除分支', !(await ops.branches(d2)).some((b) => b.name === 'feature-x'));
+
+    fs2.rmSync(d2, { recursive: true, force: true });
+  }
+
+  console.log('== 拉取 / 推送（BranchOps pull/push） ==');
+  {
+    const os3 = await import('os');
+    const fs3 = await import('fs');
+    const path3 = await import('path');
+    const cp3 = await import('child_process');
+    const bare = fs3.mkdtempSync(path3.join(os3.tmpdir(), 'turtlegit-bare-'));
+    const work = fs3.mkdtempSync(path3.join(os3.tmpdir(), 'turtlegit-work-'));
+    const rb = (args: string[], cwd = bare) => {
+      const r = cp3.spawnSync('git', args, { cwd, encoding: 'utf8' });
+      if (r.status !== 0) throw new Error(`git ${args.join(' ')} failed: ${r.stderr}`);
+      return r.stdout.trim();
+    };
+    const rw = (args: string[]) => rb(args, work);
+    rb(['init', '--bare', '-b', 'main']);
+    rw(['init', '-b', 'main']);
+    rw(['config', 'user.email', 'pull@example.com']);
+    rw(['config', 'user.name', '拉取测试']);
+    rw(['remote', 'add', 'origin', bare]);
+
+    fs3.writeFileSync(path3.join(work, 'a.txt'), 'v1\n', 'utf8');
+    rw(['add', '-A']);
+    rw(['commit', '-m', 'c1']);
+    // 首次推送：无上游 → 走自动探测 remote + -u 路径
+    const push1 = await ops.push(work);
+    check('首次推送（无上游自动 -u）', push1.code === 0, push1.stderr);
+    check('远端含 c1', rb(['log', '--oneline']).includes('c1'));
+    check('推送后建立上游跟踪', (await git.branchInfo(work)).upstream === 'origin/main', await git.branchInfo(work));
+
+    fs3.writeFileSync(path3.join(work, 'a.txt'), 'v2\n', 'utf8');
+    rw(['add', '-A']);
+    rw(['commit', '-m', 'c2']);
+    // 已有上游 → 普通 push 路径
+    const push2 = await ops.push(work);
+    check('二次推送（有上游）', push2.code === 0, push2.stderr);
+    check('远端含 c2', rb(['log', '--oneline']).includes('c2'));
+
+    // 本地回退一格后 pull → fast-forward 恢复
+    rw(['reset', '--hard', 'HEAD~1']);
+    check('本地已落后', rw(['rev-list', '--count', 'HEAD']) === '1');
+    const pull = await ops.pull(work);
+    check('pull 成功', pull.code === 0, pull.stderr);
+    check('pull 后快进到 c2', rw(['log', '--oneline']).includes('c2'));
+    check('pull 后文件内容同步', fs3.readFileSync(path3.join(work, 'a.txt'), 'utf8').trim() === 'v2', fs3.readFileSync(path3.join(work, 'a.txt'), 'utf8'));
+
+    // 无新提交时 pull → Already up to date
+    const pull2 = await ops.pull(work);
+    check('重复 pull 为最新', /up to date/i.test(pull2.stdout + pull2.stderr), pull2.stdout);
+
+    // detached HEAD 拉取应报错而非卡死
+    rw(['checkout', '--detach', 'HEAD']);
+    let pullDetachedErr: unknown;
+    try {
+      await ops.pull(work);
+    } catch (e) {
+      pullDetachedErr = e;
+    }
+    check(
+      'detached HEAD pull 抛错',
+      pullDetachedErr instanceof Error && /detached/i.test(pullDetachedErr.message),
+      pullDetachedErr,
+    );
+    rw(['checkout', 'main']);
+
+    fs3.rmSync(bare, { recursive: true, force: true });
+    fs3.rmSync(work, { recursive: true, force: true });
+  }
+
+  console.log('== lane 算法 ==');
+  {
+    const mk = (hash: string, parents: string[]): CommitInfo => ({
+      hash,
+      shortHash: hash,
+      parents,
+      author: 't',
+      authorEmail: 't@t',
+      authorDate: '2026-01-01T00:00:00+08:00',
+      subject: hash,
+      body: '',
+      refs: [],
+    });
+    // 注意：git log 输出顺序为"子在前、父在后"（与 --topo-order 实际顺序一致）
+    const linear = computeLanes([mk('c', ['b']), mk('b', ['a']), mk('a', [])]);
+    check('线性历史 lane 全为 0', linear.every((n) => n.lane === 0), linear.map((n) => n.lane));
+    check('root 提交无 parent', linear[2].parentLanes.length === 0, linear[2].parentLanes);
+
+    const forked = computeLanes([
+      mk('m', ['b', 'c']),
+      mk('b', ['root']),
+      mk('c', ['root']),
+      mk('root', []),
+    ]);
+    check('分叉第二支线占 lane 1', forked[2].lane === 1, forked.map((n) => n.lane));
+    check('合并节点回到 lane 0', forked[0].lane === 0);
+    check('合并节点两个 parent 在不同 lane', new Set(forked[0].parentLanes).size === 2, forked[0].parentLanes);
+    check('合并后旧支线 lane 释放', forked[3].lane === 0);
+
+    // c 分支合入 d 后无后续提交：c 的 lane 不应泄漏到后续
+    const merged = computeLanes([mk('d', ['b']), mk('b', ['root']), mk('c', ['root']), mk('root', [])]);
+    check('合入场景 lane 正确', merged[0].lane === 0 && merged[1].lane === 0 && merged[2].lane === 1, merged.map((n) => n.lane));
+
+    // 多分叉：三条支线
+    const triple = computeLanes([
+      mk('m', ['x', 'y', 'z']),
+      mk('x', ['r']),
+      mk('y', ['r']),
+      mk('z', ['r']),
+      mk('r', []),
+    ]);
+    check('三分叉占据 3 条 lane', new Set([triple[1].lane, triple[2].lane, triple[3].lane]).size === 3, triple.map((n) => n.lane));
+  }
+
+  console.log('== 文件目录树构建（buildFileTree / collectFiles） ==');
+  {
+    const { buildFileTree, collectFiles } = await import('../webview/ui/fileTree');
+    const mk = (path: string): FileStatus => ({
+      path,
+      index: 'modified',
+      worktree: 'modified',
+      untracked: false,
+      ignored: false,
+      conflicted: false,
+    });
+    const tree = buildFileTree(['src/a.ts', 'src/deep/b.ts', 'README.md', 'src/c/d.ts'].map(mk));
+    check('顶层 1 目录 + 1 文件', tree.length === 2 && tree[0].kind === 'dir' && tree[1].kind === 'file', tree.map((n) => n.path));
+    check('目录排在文件前', tree[0].path === 'src');
+    check('src 下 2 目录 + 1 文件', tree[0].children!.filter((c) => c.kind === 'dir').length === 2 && tree[0].children!.filter((c) => c.kind === 'file').length === 1, tree[0].children!.map((c) => c.path));
+    check('collectFiles 递归收集 3 个文件', collectFiles(tree[0]).length === 3, collectFiles(tree[0]).map((f) => f.path));
+    check('collectFiles 对文件节点返回自身', collectFiles(tree[1]).length === 1);
+    check('空输入为空树', buildFileTree([]).length === 0);
+    check('根目录文件不建目录', buildFileTree([mk('a.txt'), mk('b.txt')]).every((n) => n.kind === 'file'));
+    // 尾斜杠条目（超上限保持折叠的忽略目录 `! node_modules/`）→ 无子节点的目录节点
+    const collapsedTree = buildFileTree([mk('node_modules/'), mk('.vscode/'), mk('src/a.ts')]);
+    const nmNode = collapsedTree.find((n) => n.path === 'node_modules');
+    check('尾斜杠条目建为目录节点', nmNode?.kind === 'dir' && (nmNode.children?.length ?? 0) === 0, collapsedTree.map((n) => `${n.kind}:${n.path}`));
+    check('尾斜杠目录不产生空名文件行', collapsedTree.every((n) => n.label !== ''), collapsedTree.map((n) => `${n.kind}:${n.label}`));
+    check('尾斜杠目录不参与 collectFiles', collectFiles(nmNode!).length === 0);
+  }
+
+  console.log('== 忽略列表写入（换行追加 / exclude / 目录两种模式） ==');
+  {
+    const igDir = fs.mkdtempSync(path.join(os.tmpdir(), 'turtlegit-ignore-'));
+    const igRun = (args: string[]) => {
+      const r = cp.spawnSync('git', args, { cwd: igDir, encoding: 'utf8' });
+      if (r.status !== 0) throw new Error(`git ${args.join(' ')} failed: ${r.stderr}`);
+      return r.stdout;
+    };
+    igRun(['init', '-b', 'main']);
+    fs.mkdirSync(path.join(igDir, 'build'));
+    fs.writeFileSync(path.join(igDir, 'build', 'out.js'), 'var a=1;\n', 'utf8');
+    fs.writeFileSync(path.join(igDir, 'build', 'out.css'), 'a{}\n', 'utf8');
+    fs.mkdirSync(path.join(igDir, 'build', 'sub')); // 嵌套子目录：验证递归展开
+    fs.writeFileSync(path.join(igDir, 'build', 'sub', 'deep.js'), 'deep\n', 'utf8');
+    fs.writeFileSync(path.join(igDir, 'tmp.log'), 'log line\n', 'utf8');
+    // 排除名单场景：.history / node_modules，以及嵌套在忽略目录里的同名目录
+    fs.mkdirSync(path.join(igDir, '.history'));
+    fs.writeFileSync(path.join(igDir, '.history', 'old.txt'), 'old\n', 'utf8');
+    fs.mkdirSync(path.join(igDir, 'node_modules'));
+    fs.writeFileSync(path.join(igDir, 'node_modules', 'x.js'), 'x\n', 'utf8');
+    fs.mkdirSync(path.join(igDir, 'temp', '.history'), { recursive: true });
+    fs.writeFileSync(path.join(igDir, 'temp', '.history', 'n.txt'), 'n\n', 'utf8');
+    fs.writeFileSync(path.join(igDir, 'temp', 'ok.txt'), 'ok\n', 'utf8');
+    // 超上限的巨型忽略目录（node_modules 场景）：保持折叠单条
+    fs.mkdirSync(path.join(igDir, 'big'));
+    for (let i = 0; i < 501; i++) {
+      fs.writeFileSync(path.join(igDir, 'big', `f${i}.txt`), '', 'utf8');
+    }
+
+    // 1) 文件末尾无换行时也必须另起一行（原实现会粘在最后一行后面）
+    const giPath = path.join(igDir, '.gitignore');
+    fs.writeFileSync(giPath, 'node_modules', 'utf8'); // 故意不带换行
+    await git.addToGitIgnore(igDir, ['tmp.log']);
+    const gi1 = fs.readFileSync(giPath, 'utf8');
+    check('无换行文件追加后另起一行', gi1.split(/\r?\n/)[0] === 'node_modules' && gi1.includes('\n/tmp.log\n'), JSON.stringify(gi1));
+
+    // 2) 重复条目不重复追加
+    await git.addToGitIgnore(igDir, ['tmp.log']);
+    const gi2 = fs.readFileSync(giPath, 'utf8');
+    check('已存在条目不重复写入', gi2.split(/\r?\n/).filter((l) => l.trim() === '/tmp.log').length === 1, JSON.stringify(gi2));
+
+    // 3) 写入 .git/info/exclude（仅本地）
+    await git.addToGitIgnore(igDir, ['secret.txt'], { target: 'exclude' });
+    const exPath = path.join(igDir, '.git', 'info', 'exclude');
+    check('exclude 目标写入 .git/info/exclude', fs.existsSync(exPath) && fs.readFileSync(exPath, 'utf8').includes('/secret.txt'));
+    check('exclude 不影响 .gitignore', !fs.readFileSync(giPath, 'utf8').includes('secret.txt'));
+
+    // 4) 目录：整目录模式写一条 dir/
+    await git.addToGitIgnore(igDir, ['build'], { mode: 'dir' });
+    const gi3Lines = fs.readFileSync(giPath, 'utf8').split(/\r?\n/).map((l) => l.trim());
+    check('目录整目录模式写 dir/', gi3Lines.includes('/build/'), gi3Lines);
+    // 巨型目录同样整目录忽略（用于验证超上限保持折叠）
+    await git.addToGitIgnore(igDir, ['big'], { mode: 'dir' });
+    // 排除名单相关目录
+    await git.addToGitIgnore(igDir, ['.history'], { mode: 'dir' });
+    await git.addToGitIgnore(igDir, ['temp'], { mode: 'dir' });
+
+    // 5) 目录：遍历文件模式逐条写入
+    await git.addToGitIgnore(igDir, ['build'], { mode: 'files' });
+    const gi4 = fs.readFileSync(giPath, 'utf8');
+    check('目录遍历模式写入目录下文件', gi4.includes('/build/out.js') && gi4.includes('/build/out.css'), gi4.split(/\r?\n/));
+    check('遍历模式不写目录本身', !gi4.includes('/build/\n/build/out.js'), gi4.split(/\r?\n/));
+
+    // 6) status 必须带 --ignored，且忽略目录展开为逐个文件：侧边栏勾选「忽略文件」后
+    //    能看到 .vscode/、build/ 等目录里的文件；超上限的巨型目录保持折叠单条。
+    const igStatus = await git.status(igDir);
+    const igByPath = new Map(igStatus.map((f) => [f.path, f]));
+    const igPaths = [...igByPath.keys()];
+    check('status 含忽略文件 tmp.log', igByPath.get('tmp.log')?.ignored === true, igPaths);
+    check('忽略目录展开：build/out.js', igByPath.get('build/out.js')?.ignored === true, igPaths);
+    check('忽略目录展开：build/out.css', igByPath.get('build/out.css')?.ignored === true, igPaths);
+    check('忽略目录递归展开：build/sub/deep.js', igByPath.get('build/sub/deep.js')?.ignored === true, igPaths);
+    check('忽略目录展开后无目录单条', !igByPath.has('build/'), igPaths);
+    check('未传排除列表时 .history 正常展开', igByPath.get('.history/old.txt')?.ignored === true, igPaths);
+    check('超上限巨型目录保持折叠 big/', igByPath.has('big/') && igByPath.get('big/')?.ignored === true, igPaths.slice(0, 8));
+    check('超上限目录不展开子文件', !igByPath.has('big/f0.txt'), igPaths.length);
+    check('展开的忽略文件不进暂存状态', igByPath.get('build/out.js')?.index === 'none' && igByPath.get('build/out.js')?.worktree === 'none', igByPath.get('build/out.js'));
+    check('.gitignore 自身是未跟踪而非忽略', igByPath.get('.gitignore')?.untracked === true && igByPath.get('.gitignore')?.ignored === false, igByPath.get('.gitignore'));
+    check('忽略文件不进暂存状态', igByPath.get('tmp.log')?.index === 'none' && igByPath.get('tmp.log')?.worktree === 'none', igByPath.get('tmp.log'));
+
+    // 7) 排除名单（turtlegit.ignoredExcludeDirs，默认 ['.history','node_modules']）：
+    //    命中文件夹整条剔除，嵌套在忽略目录里的同名目录也跳过，其他忽略文件不受影响
+    const igStatusEx = await git.status(igDir, { ignoredExcludeDirs: ['.history', 'node_modules'] });
+    const exByPath = new Map(igStatusEx.map((f) => [f.path, f]));
+    const exPaths = [...exByPath.keys()];
+    check('排除 .history：目录条目剔除', !exByPath.has('.history/'), exPaths);
+    check('排除 .history：文件不展开', !exByPath.has('.history/old.txt'), exPaths);
+    check('排除 node_modules：目录条目剔除', !exByPath.has('node_modules/'), exPaths);
+    check('排除 node_modules：文件不展开', !exByPath.has('node_modules/x.js'), exPaths);
+    check('排除嵌套同名目录：temp/.history/n.txt 不列出', !exByPath.has('temp/.history/n.txt'), exPaths);
+    check('排除不影响同级文件：temp/ok.txt 仍列出', exByPath.get('temp/ok.txt')?.ignored === true, exPaths);
+    check('排除不影响其他忽略文件', exByPath.get('tmp.log')?.ignored === true && exByPath.get('build/out.js')?.ignored === true, exPaths);
+    // 空数组 = 不过滤任何目录
+    const igStatusNone = await git.status(igDir, { ignoredExcludeDirs: [] });
+    check('空排除列表时 .history 恢复显示', igStatusNone.some((f) => f.path === '.history/old.txt'), igStatusNone.map((f) => f.path));
+  }
+
+  console.log('== diff 渲染（gap 折叠行 / 并排行号分列） ==');
+  {
+    const { rowsSideBySide, renderDiff, contextDiffRows } = await import('../webview/diff/DiffRenderer');
+    const patch = [
+      'diff --git a/f.txt b/f.txt',
+      'index 111..222 100644',
+      '--- a/f.txt',
+      '+++ b/f.txt',
+      '@@ -1,3 +1,3 @@',
+      ' line1',
+      '-line2',
+      '+line2-mod',
+      ' line3',
+      '@@ -10,3 +10,3 @@',
+      ' line10',
+      '-line11',
+      '+line11-mod',
+      ' line12',
+    ].join('\n');
+    const gaps = rowsSideBySide(patch).filter((r) => r.kind === 'gap');
+    check('hunk 间生成 1 个 gap 行', gaps.length === 1, gaps);
+    check(
+      'gap 行范围正确（旧 4..9 / 新 4..9）',
+      gaps[0]?.oldStart === 4 && gaps[0]?.oldEnd === 9 && gaps[0]?.newStart === 4 && gaps[0]?.newEnd === 9,
+      gaps[0],
+    );
+    const html = renderDiff(patch, 'side');
+    check('gap 行含波浪线与展开按钮（6 行）', html.includes('d-wave') && html.includes('展开 6 行'));
+    check('并排行号分列：左行号紧邻左文本', /<td class="d-no">2<\/td>\s*<td class="d-left">/.test(html), html);
+    check('并排列序：左文本后是右行号', /<td class="d-left">line2<\/td>\s*<td class="d-no">2<\/td>/.test(html));
+
+    // 首个 hunk 之前的省略行
+    const patch2 = ['--- a/f.txt', '+++ b/f.txt', '@@ -5,2 +5,2 @@', ' line5', '-line6', '+line6-mod'].join('\n');
+    const gaps2 = rowsSideBySide(patch2).filter((r) => r.kind === 'gap');
+    check('首个 hunk 前生成 gap（1..4）', gaps2.length === 1 && gaps2[0]?.oldStart === 1 && gaps2[0]?.oldEnd === 4, gaps2);
+
+    // 无省略时无 gap
+    const patch3 = ['--- a/f.txt', '+++ b/f.txt', '@@ -1,1 +1,1 @@', '-a', '+b'].join('\n');
+    check('单 hunk 无 gap', rowsSideBySide(patch3).filter((r) => r.kind === 'gap').length === 0);
+
+    const ctx = contextDiffRows(['a', 'b'], ['a', 'b'], 10, 20);
+    check(
+      'contextDiffRows 行号递增',
+      ctx.length === 2 && ctx[0]?.leftNo === 10 && ctx[0]?.rightNo === 20 && ctx[1]?.leftNo === 11 && ctx[1]?.rightNo === 21,
+      ctx,
+    );
+  }
+
+  console.log('== 原生 diff 内容提供器（blobAtRef / turtlegit: URI） ==');
+  {
+    // 独立临时仓库：构造 HEAD / index / 工作区三态内容
+    const dir2 = fs.mkdtempSync(path.join(os.tmpdir(), 'turtlegit-blob-'));
+    const run2 = (args: string[]) => {
+      const r = cp.spawnSync('git', args, { cwd: dir2, encoding: 'utf8' });
+      if (r.status !== 0) throw new Error(`git ${args.join(' ')} failed: ${r.stderr}`);
+      return r.stdout;
+    };
+    run2(['init', '-q', '-b', 'main']);
+    run2(['config', 'user.email', 'test@example.com']);
+    run2(['config', 'user.name', '测试用户']);
+    fs.writeFileSync(path.join(dir2, 'v1.txt'), 'line1\n', 'utf8');
+    fs.mkdirSync(path.join(dir2, 'src 目录'));
+    fs.writeFileSync(path.join(dir2, 'src 目录', '中文 名.ts'), '旧内容\n', 'utf8');
+    run2(['add', '-A']);
+    run2(['commit', '-qm', 'init']);
+    fs.writeFileSync(path.join(dir2, 'v1.txt'), 'line1\nline2-staged\n', 'utf8');
+    run2(['add', 'v1.txt']);
+    fs.writeFileSync(path.join(dir2, 'v1.txt'), 'line1\nline2-work\n', 'utf8');
+
+    const head = await git.blobAtRef(dir2, 'v1.txt', 'HEAD');
+    check('blobAtRef HEAD 版本', head !== null && head.toString('utf8') === 'line1\n', head?.toString('utf8'));
+    const idx = await git.blobAtRef(dir2, 'v1.txt', '');
+    check('blobAtRef index 版本（暂存内容）', idx !== null && idx.toString('utf8') === 'line1\nline2-staged\n', idx?.toString('utf8'));
+    const missing = await git.blobAtRef(dir2, 'no-such.txt', 'HEAD');
+    check('blobAtRef 缺失文件返回 null', missing === null);
+    const cn = await git.blobAtRef(dir2, 'src 目录/中文 名.ts', 'HEAD');
+    check('blobAtRef 中文+空格路径', cn !== null && cn.toString('utf8') === '旧内容\n', cn?.toString('utf8'));
+
+    // GBK 编码文件：必须原样返回字节（交给编辑器做编码检测，不能 UTF-8 乱码化）
+    const gbkBytes = Buffer.from([0xd6, 0xd0, 0xce, 0xc4, 0x0a]); // "中文\n" 的 GBK 编码
+    fs.writeFileSync(path.join(dir2, 'gbk.txt'), gbkBytes);
+    run2(['add', 'gbk.txt']);
+    run2(['commit', '-qm', 'gbk']);
+    const gbk = await git.blobAtRef(dir2, 'gbk.txt', 'HEAD');
+    check('blobAtRef 保留 GBK 原始字节', gbk !== null && gbk.equals(gbkBytes), gbk?.toString('hex'));
+
+    // turtlegit: URI 参数（运行时用 Uri.file(abs).with({scheme, query}) 拼装，
+    // 这里是 query 侧契约：Uri.with 存入 → uri.query 取回 → JSON.parse）
+    const abs = path.join(dir2, 'src 目录', '中文 名.ts');
+    check('参数对象含 path/ref/root', (() => {
+      const p = blobUriParams(abs, 'HEAD', dir2);
+      return p.path === abs && p.ref === 'HEAD' && p.root === dir2;
+    })());
+    const params = parseBlobParams(blobUriQuery(abs, 'HEAD', dir2));
+    check(
+      'query 往返解析一致（中文+空格路径）',
+      params !== null && params.path === abs && params.ref === 'HEAD' && params.root === dir2,
+      params,
+    );
+    // # 是 URI fragment 边界字符（? 在 Windows 文件名里非法，故只测 #）：
+    // 走 Uri.file(...).with(query) 构造，路径与 query 分离，不受 # 影响
+    const weird = path.join(dir2, 'a#b.txt');
+    fs.writeFileSync(weird, 'weird\n', 'utf8');
+    run2(['add', 'a#b.txt']);
+    run2(['commit', '-qm', 'weird']);
+    const paramsWeird = parseBlobParams(blobUriQuery(weird, 'HEAD', dir2));
+    check('# 路径参数往返一致', paramsWeird?.path === weird && paramsWeird?.root === dir2, paramsWeird);
+    const wb = await git.blobAtRef(dir2, 'a#b.txt', 'HEAD');
+    check('# 路径 blobAtRef 可读', wb !== null && wb.toString('utf8') === 'weird\n', wb?.toString('utf8'));
+    check('parseBlobParams 拒绝非法 query', parseBlobParams('not-json') === null && parseBlobParams('') === null);
+    const paramsIdx = parseBlobParams(blobUriQuery(abs, '', dir2));
+    check('query 支持 index 版本（ref 空串）', paramsIdx?.ref === '' && paramsIdx?.path === abs, paramsIdx);
+  }
+
+  if (failures > 0) {
+    console.error(`\n${failures} 个断言失败`);
+    process.exit(1);
+  }
+  console.log('\n全部通过 ✔');
+}
+
+main().catch((err) => {
+  console.error(err);
+  process.exit(1);
+});

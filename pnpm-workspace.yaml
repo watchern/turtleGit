@@ -1,0 +1,4 @@
+# pnpm 工作区设置（pnpm 11：构建脚本审批）
+allowBuilds:
+  '@vscode/vsce-sign': true
+  esbuild: true
