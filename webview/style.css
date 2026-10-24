@@ -321,6 +321,57 @@ button.mini {
   color: var(--muted);
 }
 
+/* 分支根行：变更文件列表的第一级（sticky 定位，列表滚动时保持可见） */
+.branch-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 10px;
+  cursor: default;
+  user-select: none;
+  white-space: nowrap;
+  font-weight: 600;
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  background: var(--bg);
+  border-bottom: 1px solid var(--border);
+}
+
+.branch-row:hover {
+  background: var(--hover);
+}
+
+.branch-row .branch-check {
+  flex: none;
+  margin: 0;
+}
+
+.branch-icon {
+  flex: none;
+  color: var(--fg);
+  opacity: 0.85;
+}
+
+.branch-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.branch-ab {
+  flex: none;
+  font-size: 11px;
+  color: var(--muted);
+  font-weight: 400;
+}
+
+.branch-state {
+  flex: none;
+  font-size: 11px;
+  color: var(--mod);
+  font-weight: 400;
+}
+
 /* 文件状态：单字母 + 彩色文字（VSCode 内置 Git 风格 M/A/D/R/T/C/U/!），中文说明在 title */
 .badge {
   flex: none;
@@ -922,6 +973,9 @@ tr.d-del .d-text::before {
   flex-direction: column;
   height: 100%;
   min-height: 0;
+  /* 外框向左右各外扩 20px：对齐 Claude Code 的 -20px 负边距，抵消 webview 容器留白，内容通铺面板宽度 */
+  margin-left: -10px;
+  margin-right: -10px;
 }
 
 .sc-head {
@@ -980,7 +1034,7 @@ button.icon:hover {
 }
 
 .sc-foot .sel-stat {
-  padding: 4px 0px 0;
+  padding: 4px 0px 2px;
 }
 
 .sc-foot .message {
@@ -988,7 +1042,7 @@ button.icon:hover {
   min-height: 56px;
   max-height: 40vh;
   font-size: 12px;
-  padding: 5px 8px;
+  padding: 5px 0px;
 }
 
 .sc-actions {

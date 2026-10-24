@@ -2,7 +2,6 @@ import * as vscode from 'vscode';
 import { RepositoryStore } from '../core/RepositoryStore';
 import { PanelManager } from './PanelManager';
 import { relPathIn } from '../core/paths';
-import { BranchInfo } from '../../../shared/protocol';
 
 export const COMMIT_VIEW_ID = 'turtlegit.commitView';
 
@@ -32,10 +31,7 @@ export class CommitViewProvider implements vscode.WebviewViewProvider {
       this.store.onDidChangeRepos(() => {
         void this.syncRepo();
       }),
-      // 分支信息显示在视图标题栏（description），不占用 webview 内部空间
-      this.store.onDidChangeBranch(({ repoRoot, info }) => {
-        if (repoRoot === this.repoRoot) this.setBranch(info);
-      }),
+      // 分支信息改由 webview 渲染为变更文件列表的第一级根节点，标题栏不再显示
     );
   }
 
@@ -71,19 +67,10 @@ export class CommitViewProvider implements vscode.WebviewViewProvider {
 
     const repoRoot = await this.panels.resolveRepoRootFor();
     this.repoRoot = repoRoot;
+    // 标题保持静态「提交」；当前分支由 webview 渲染为变更文件列表的第一级
+    webviewView.title = '提交';
     this.render(repoRoot, this.pendingPaths);
     this.pendingPaths = undefined;
-    if (repoRoot) this.setBranch(this.store.branch(repoRoot));
-  }
-
-  /** 把当前分支写到视图标题栏：标题 = 「提交 · 分支」，附加描述 = ↑领先/↓落后 */
-  private setBranch(info: BranchInfo): void {
-    if (!this.view) return;
-    const ahead = info.ahead ? ` ↑${info.ahead}` : '';
-    const behind = info.behind ? ` ↓${info.behind}` : '';
-    const name = `${info.name}${info.detached ? ' (detached)' : ''}`;
-    this.view.title = `提交 · ${name}`;
-    this.view.description = ahead || behind ? `${ahead.trim()} ${behind.trim()}`.trim() : undefined;
   }
 
   /** 仓库发现结果变化时同步（如打开/关闭文件夹、首次发现仓库） */
@@ -93,7 +80,6 @@ export class CommitViewProvider implements vscode.WebviewViewProvider {
     this.repoRoot = repoRoot;
     if (!this.view) return;
     this.render(repoRoot);
-    if (repoRoot) this.setBranch(this.store.branch(repoRoot));
   }
 
   private render(repoRoot: string | undefined, paths?: string[]): void {

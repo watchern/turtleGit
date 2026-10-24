@@ -1,8 +1,8 @@
 import { RpcClient } from '../bridge';
-import { buildFileTree, collectFiles, FileTreeNode } from '../ui/fileTree';
+import { buildFileTree, collectDirs, collectFiles, FileTreeNode } from '../ui/fileTree';
 import { loadState, saveState } from '../state';
 import { statusBadge, esc, escAttr } from './common';
-import { FileStatus, FileNumstat, StatusViewMode } from '../../shared/protocol';
+import { BranchInfo, FileStatus, FileNumstat, StatusViewMode } from '../../shared/protocol';
 
 /** 右键菜单项：有 children 时点击展开子菜单（渲染为带 › 的父项） */
 interface MenuItem {
@@ -36,6 +36,10 @@ export class CommitSidebarPanel {
   private numstat = new Map<string, FileNumstat>();
   private viewMode: StatusViewMode;
   private collapsedDirs = new Set<string>();
+  /** 当前分支（变更文件列表的第一级根节点）；undefined = 尚未取到 */
+  private branch: BranchInfo | undefined;
+  /** 分支行折叠：只显示分支行，隐藏整个文件列表 */
+  private branchCollapsed = false;
   private showUntracked = true;
   private showIgnored = false;
   private busy = false;
@@ -74,7 +78,7 @@ export class CommitSidebarPanel {
 <div class="sidebar-commit">
   <div class="sc-head">
     <button class="mini" id="sc-mode" title="切换树形/列表视图">树形</button>
-    <button class="mini" id="sc-sel" title="全选 / 全不选">全选</button>
+    <button class="mini" id="sc-collapse" title="一键收起 / 展开所有目录">收起</button>
     <span class="flex"></span>
     <label class="chk"><input type="checkbox" id="sc-untracked" checked> 未版本</label>
     <label class="chk"><input type="checkbox" id="sc-ignored"> 忽略文件</label>
@@ -106,9 +110,16 @@ export class CommitSidebarPanel {
     this.must('sc-mode').addEventListener('click', () => {
       void this.client.send('ui:setViewMode', { mode: this.viewMode === 'tree' ? 'list' : 'tree' });
     });
+    // 一键收起 / 展开所有目录（仅树形模式有意义，列表模式下隐藏按钮）
+    this.must('sc-collapse').addEventListener('click', () => {
+      const dirs = collectDirs(buildFileTree(this.visibleFiles()));
+      const allCollapsed = dirs.length > 0 && dirs.every((d) => this.collapsedDirs.has(d));
+      this.collapsedDirs.clear();
+      if (!allCollapsed) for (const d of dirs) this.collapsedDirs.add(d);
+      this.renderList();
+    });
     this.must('sc-refresh').addEventListener('click', () => void this.reload());
-    // 全选 / 全不选：单按钮互斥（按钮文字即为"点击后执行的动作"）
-    this.must('sc-sel').addEventListener('click', () => this.selectAll(!this.allVisibleSelected()));
+    // 全选/全不选由分支根行的复选框承担（顶栏不再放按钮）
     (this.must('sc-untracked') as HTMLInputElement).addEventListener('change', (e) => {
       this.showUntracked = (e.target as HTMLInputElement).checked;
       this.renderList();
@@ -143,16 +154,16 @@ export class CommitSidebarPanel {
 
   private updateModeButton(): void {
     this.must('sc-mode').textContent = this.viewMode === 'tree' ? '列表' : '树形';
+    // 一键收起只在树形模式可用
+    this.must('sc-collapse').style.display = this.viewMode === 'tree' ? '' : 'none';
   }
 
-  /** 可见文件是否全部已勾选（决定"全选/全不选"按钮的当前语义） */
-  private allVisibleSelected(): boolean {
-    const files = this.visibleFiles();
-    return files.length > 0 && files.every((f) => this.selected.has(f.path));
-  }
-
-  private updateSelButton(): void {
-    this.must('sc-sel').textContent = this.allVisibleSelected() ? '全不选' : '全选';
+  /** 收起按钮文案：全部目录已收起 → 「展开」，否则 → 「收起」 */
+  private updateCollapseButton(): void {
+    if (this.viewMode !== 'tree') return;
+    const dirs = collectDirs(buildFileTree(this.visibleFiles()));
+    const allCollapsed = dirs.length > 0 && dirs.every((d) => this.collapsedDirs.has(d));
+    this.must('sc-collapse').textContent = allCollapsed ? '展开' : '收起';
   }
 
   // ---------- 状态持久化 ----------
@@ -214,6 +225,11 @@ export class CommitSidebarPanel {
     });
     // 标题栏刷新按钮 / 宿主主动刷新：只重新拉取，不重建 UI（保留勾选与折叠态）
     this.client.on('reload', () => void this.reload());
+    // 分支信息（列表第一级根节点）跟随宿主推送实时更新
+    this.client.on('branch:changed', ({ info }) => {
+      this.branch = info;
+      this.renderList();
+    });
     this.client.on('statusViewMode:changed', ({ mode }) => {
       this.viewMode = mode;
       this.collapsedDirs.clear();
@@ -251,9 +267,21 @@ export class CommitSidebarPanel {
       const f = this.files.find((x) => x.path === p);
       if (f && !f.conflicted) this.selected.add(p);
     }
-    // 分支信息改由宿主写到视图标题栏（description），webview 内不再重复显示
+    // 分支信息：变更文件列表的第一级根节点（初始值走 repo:info，之后由 branch:changed 推送）
+    void this.loadBranch();
     this.renderList();
     void this.refreshNumstat();
+  }
+
+  /** 拉取当前分支信息；失败时静默（不渲染分支行，文件列表照常显示） */
+  private async loadBranch(): Promise<void> {
+    if (!this.repoRoot) return;
+    try {
+      this.branch = await this.client.send('repo:info', { repoRoot: this.repoRoot });
+    } catch {
+      return;
+    }
+    this.renderList();
   }
 
   private visibleFiles(): FileStatus[] {
@@ -266,15 +294,60 @@ export class CommitSidebarPanel {
 
   private renderList(): void {
     const files = this.visibleFiles();
+    const parts: string[] = [];
+    if (this.branch) parts.push(this.renderBranchRow(files));
     if (!files.length) {
-      this.listEl.innerHTML = '<div class="empty">没有变更</div>';
-    } else {
-      this.listEl.innerHTML =
-        this.viewMode === 'tree' ? this.renderTree(buildFileTree(files), 0) : this.renderFlat(files);
-      this.bindListEvents();
+      parts.push('<div class="empty">没有变更</div>');
+    } else if (!this.branchCollapsed) {
+      // 分支行是第一级，文件整体下挂一层：树形 depth 从 1 起，列表模式左缩进 10px
+      parts.push(
+        this.viewMode === 'tree'
+          ? this.renderTree(buildFileTree(files), 1)
+          : this.renderFlat(files),
+      );
     }
+    this.listEl.innerHTML = parts.join('');
+    this.bindListEvents();
     this.updateSelStat();
-    this.updateSelButton();
+    this.updateCollapseButton();
+  }
+
+  /** 仓库状态中文名（分支行上非 clean 时提示） */
+  private static readonly STATE_CN: Record<string, string> = {
+    merging: '合并中',
+    rebasing: '变基中',
+    'cherry-picking': '拣选中',
+    reverting: '还原中',
+    bisecting: '二分查找中',
+    applying: '应用补丁中',
+  };
+
+  /**
+   * 分支根行：变更文件列表的第一级。
+   * 分支名 + ↑领先/↓落后 + 仓库状态 + 已选/总数；复选框 = 全选/全不选，
+   * twisty = 折叠/展开整个文件列表（sticky 定位，滚动时保持可见）。
+   */
+  private renderBranchRow(files: FileStatus[]): string {
+    const b = this.branch!;
+    const selectedCount = files.filter((f) => this.selected.has(f.path)).length;
+    const all = files.length > 0 && selectedCount === files.length;
+    const indeterminate = selectedCount > 0 && !all;
+    const ab =
+      (b.ahead ? `<span class="branch-ab" title="领先上游 ${b.ahead} 个提交">↑${b.ahead}</span>` : '') +
+      (b.behind ? `<span class="branch-ab" title="落后上游 ${b.behind} 个提交">↓${b.behind}</span>` : '');
+    const state =
+      b.state !== 'clean'
+        ? `<span class="branch-state">${esc(CommitSidebarPanel.STATE_CN[b.state] ?? b.state)}</span>`
+        : '';
+    const name = esc(`${b.name}${b.detached ? ' (detached)' : ''}`);
+    return `<div class="branch-row${this.branchCollapsed ? ' collapsed' : ''}" title="${escAttr(`${b.name}（当前分支）`)}">
+  <span class="dir-twisty${this.branchCollapsed ? '' : ' open'}" title="展开/折叠文件列表"><svg width="12" height="12" viewBox="0 0 12 12" aria-hidden="true"><path d="M4.5 1.5 8.5 6 4.5 10.5" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg></span>
+  <input type="checkbox" class="branch-check"${all ? ' checked' : ''}${indeterminate ? ' data-indeterminate="1"' : ''}>
+  <svg class="branch-icon" width="13" height="13" viewBox="0 0 16 16" aria-hidden="true"><circle cx="4.5" cy="3.5" r="1.8" fill="none" stroke="currentColor" stroke-width="1.5"/><circle cx="4.5" cy="12.5" r="1.8" fill="none" stroke="currentColor" stroke-width="1.5"/><circle cx="11.5" cy="5" r="1.8" fill="none" stroke="currentColor" stroke-width="1.5"/><path d="M4.5 5.3v5.4M11.5 6.8c0 1.2-1.6 1.7-3 1.7h-4" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>
+  <span class="branch-name">${name}</span>
+  ${ab}${state}
+  <span class="dir-count">${selectedCount}/${files.length}</span>
+</div>`;
   }
 
   private async refreshNumstat(): Promise<void> {
@@ -319,9 +392,12 @@ export class CommitSidebarPanel {
       .map((f) => {
         const badge = statusBadge(f);
         const checked = this.selected.has(f.path) ? 'checked' : '';
-        const name = f.path.includes('/') ? f.path.slice(f.path.lastIndexOf('/') + 1) : f.path;
-        const dir = f.path.includes('/') ? f.path.slice(0, f.path.lastIndexOf('/')) : '';
-        return `<div class="file-row${this.activePath === f.path ? ' active' : ''}" data-path="${escAttr(f.path)}" title="${escAttr(f.path)}">
+        // 折叠的忽略目录路径以 / 结尾（`! node_modules/`）：先去尾斜杠再取名，显示名补回 /
+        const clean = f.path.endsWith('/') ? f.path.slice(0, -1) : f.path;
+        const base = clean.includes('/') ? clean.slice(clean.lastIndexOf('/') + 1) : clean;
+        const name = f.path.endsWith('/') ? `${base}/` : base;
+        const dir = clean.includes('/') ? clean.slice(0, clean.lastIndexOf('/')) : '';
+        return `<div class="file-row${this.activePath === f.path ? ' active' : ''}" data-path="${escAttr(f.path)}" style="padding-left:10px" title="${escAttr(f.path)}">
   <input type="checkbox" class="file-check" ${checked} data-path="${escAttr(f.path)}">
   <span class="badge ${badge.cls}" title="${escAttr(badge.title)}">${badge.text}</span>
   ${this.fileStatHtml(f.path)}
@@ -366,6 +442,20 @@ export class CommitSidebarPanel {
   }
 
   private bindListEvents(): void {
+    // 分支根行：点击行（非复选框处）折叠/展开整个文件列表
+    const branchRow = this.listEl.querySelector<HTMLElement>('.branch-row');
+    if (branchRow) {
+      branchRow.addEventListener('click', (e) => {
+        if ((e.target as HTMLElement).classList.contains('branch-check')) return;
+        this.branchCollapsed = !this.branchCollapsed;
+        this.renderList();
+      });
+    }
+    // 分支复选框 = 全选/全不选（顶栏不再放按钮，由分支根行承担）
+    this.listEl.querySelectorAll<HTMLInputElement>('.branch-check').forEach((cb) => {
+      cb.addEventListener('change', () => this.selectAll(cb.checked));
+      if (cb.dataset.indeterminate) cb.indeterminate = true;
+    });
     this.listEl.querySelectorAll<HTMLElement>('.file-row').forEach((row) => {
       // 点击行 → VSCode 原生对比（用户诉求：不再内嵌差异区）
       row.addEventListener('click', (e) => {
@@ -422,6 +512,8 @@ export class CommitSidebarPanel {
 
   /** 点击文件：记录当前文件并用 VSCode 原生 diff 打开（HEAD ↔ 工作区；未跟踪直接打开） */
   private openDiff(path: string): void {
+    // 折叠的忽略目录（路径以 / 结尾）没有可对比的单文件，点击只做选中不高亮 diff
+    if (path.endsWith('/')) return;
     this.activePath = path;
     this.renderList();
     this.client.command('openNativeDiff', { repoRoot: this.repoRoot, path, staged: 'false' });

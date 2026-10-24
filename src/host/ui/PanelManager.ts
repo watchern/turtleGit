@@ -6,6 +6,8 @@ import { BranchOps } from '../git/BranchOps';
 import { RepositoryStore } from '../core/RepositoryStore';
 import { RpcRouter } from '../rpc/Router';
 import { absPathIn, relPathIn } from '../core/paths';
+import { TgBlobProvider } from './GitBlobProvider';
+import { TGIT_BLOB_SCHEME, blobUriQuery } from '../core/blobUri';
 import {
   RpcRequestEnvelope,
   WebviewInit,
@@ -47,11 +49,22 @@ export class PanelManager {
     this.panelMode =
       (vscode.workspace.getConfiguration('turtlegit').get<WebviewInit['panelMode']>('panelMode')) ??
       'auto';
+    // 原生 diff 左侧内容走自注册 scheme：内置 git 扩展的 git: scheme 在
+    // Trae CN（git.enabled=false）等环境无人注册提供器，diff 必然打不开
+    this.blobProvider = new TgBlobProvider(git);
+    this.disposables.push(
+      vscode.workspace.registerFileSystemProvider(TGIT_BLOB_SCHEME, this.blobProvider, {
+        isReadonly: true,
+        isCaseSensitive: true,
+      }),
+    );
     this.registerHandlers();
     this.forwardStoreEvents();
   }
 
   private ops: BranchOps;
+  /** 原生 diff 左侧内容提供器（自注册 turtlegit: scheme，不依赖内置 git 扩展） */
+  private blobProvider: TgBlobProvider;
   /** 当前处于浮动（辅助）窗口的视图：applyFloating 成功时登记，收回/关闭时移除 */
   private floatingViews = new Set<WebviewView>();
   /**
@@ -714,7 +727,10 @@ export class PanelManager {
     this.router.register('ui:openNativeDiff', async ({ repoRoot, path: p, staged }) => {
       // 尽力推断发起面板（按仓库根匹配），以便浮动窗口先收回主窗口
       const view = [...this.panelRepo.entries()].find(([, r]) => r === repoRoot)?.[0];
-      await this.openNativeDiff(view, repoRoot, p, staged);
+      // webview 传的是字符串 'true'/'false'，直接透传会让 'false' 变成 truthy
+      // （结果对比 index 而非 HEAD），这里统一归一化为布尔
+      const isStaged = staged === true || staged === 'true';
+      await this.openNativeDiff(view, repoRoot, p, isStaged);
     });
     this.router.register('ui:openFile', async ({ repoRoot, path: p }) => {
       await this.openFileInEditor(repoRoot, p);
@@ -804,7 +820,7 @@ export class PanelManager {
         if (repoRoot && p['path'] && p['hash']) {
           await this.openNativeEditor(view, async () => {
             const abs = absPathIn(repoRoot, p['path']);
-            const right = this.gitUriFor(abs, p['hash']);
+            const right = this.blobUriFor(abs, p['hash'], repoRoot);
             // 根提交无父版本：直接打开右侧内容（该提交中全部为新增）
             const parent = await this.runner.tryRun(
               ['rev-parse', '--verify', '--quiet', `${p['hash']}^`],
@@ -814,7 +830,7 @@ export class PanelManager {
               await vscode.commands.executeCommand('vscode.open', right, { preview: true });
               return;
             }
-            const left = this.gitUriFor(abs, `${p['hash']}^`);
+            const left = this.blobUriFor(abs, `${p['hash']}^`, repoRoot);
             await vscode.commands.executeCommand(
               'vscode.diff',
               left,
@@ -857,7 +873,7 @@ export class PanelManager {
         return;
       }
       // ref 传 '' 表示 index（暂存）版本——与内置 git 扩展 toGitUri(uri, '') 一致
-      const left = this.gitUriFor(abs, staged ? '' : 'HEAD');
+      const left = this.blobUriFor(abs, staged ? '' : 'HEAD', repoRoot);
       const right = vscode.Uri.file(abs);
       const title = `${relPath} (${staged ? '已暂存' : '工作区'} ↔ HEAD)`;
       await vscode.commands.executeCommand('vscode.diff', left, right, title, { preview: true });
@@ -865,27 +881,17 @@ export class PanelManager {
   }
 
   /**
-   * 构造内置 git 扩展的 git: URI。
-   * 真实格式为 `git:<path>?<URL 编码的 JSON{path, ref}>`（见 extensions/git/src/uri.ts
-   * 的 toGitUri / fromGitUri），而非 `git:/<repo>/.git/<ref>:<file>`。
-   * 优先走 git 扩展 API 级 toGitUri（格式由扩展保证）；扩展不可用时按同一格式手搓。
-   * ref 传 '' 表示 index（暂存）版本。
+   * 构造 turtlegit: scheme 的 diff 内容 URI（自注册提供器解析，见 GitBlobProvider）。
+   * 与内置 git 扩展 git: URI 同构（path 段 + URL 编码 JSON query），但不依赖
+   * `vscode.git` 扩展是否可用。ref 传 '' 表示 index（暂存）版本。
    */
-  private gitUriFor(abs: string, ref: string): vscode.Uri {
-    try {
-      const ext = vscode.extensions.getExtension<{ exports?: unknown }>('vscode.git');
-      const api = ext?.exports as
-        | { getAPI?(v: number): { toGitUri?(u: vscode.Uri, r: string): vscode.Uri } }
-        | undefined;
-      const toGitUri = api?.getAPI?.(1)?.toGitUri;
-      if (typeof toGitUri === 'function') {
-        return toGitUri(vscode.Uri.file(abs), ref);
-      }
-    } catch {
-      /* fallthrough：扩展未激活或 API 不兼容 */
-    }
-    const params = encodeURIComponent(JSON.stringify({ path: abs, ref }));
-    return vscode.Uri.parse(`git:/${abs.replace(/\\/g, '/')}?${params}`);
+  private blobUriFor(abs: string, ref: string, repoRoot: string): vscode.Uri {
+    // Uri.file(...).with(...) 与内置 git 扩展 toGitUri 同构：路径由 Uri.file 规范
+    // 化（UNC、#/? 等特殊字符均安全），query 存 JSON 参数
+    return vscode.Uri.file(abs).with({
+      scheme: TGIT_BLOB_SCHEME,
+      query: blobUriQuery(abs, ref, repoRoot),
+    });
   }
 
   // ---------- 仓库事件推送 ----------
@@ -948,6 +954,7 @@ export class PanelManager {
 
   dispose(): void {
     this.disposables.forEach((d) => d.dispose());
+    this.blobProvider.dispose();
     this.panels.forEach((p) => p.dispose());
     this.panels.clear();
     this.floatingViews.clear();

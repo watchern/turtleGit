@@ -2,7 +2,7 @@
   "name": "turtlegit",
   "displayName": "TurtleGit - TortoiseGit 风格的跨平台 Git 增强",
   "description": "在 VSCode 中复刻 TortoiseGit 的提交、浏览、对比体验：独立浮窗对话框、提交图、按块勾选提交。纯插件实现，不依赖 TortoiseGit，Linux/macOS/Windows 通用。",
-  "version": "0.3.11",
+  "version": "0.3.15",
   "publisher": "turtlegit",
   "license": "MIT",
   "repository": {
@@ -269,6 +269,17 @@
           "type": "boolean",
           "default": true,
           "description": "在资源管理器中显示文件状态角标（复刻 TortoiseGit 图标覆盖）。"
+        },
+        "turtlegit.ignoredExcludeDirs": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": [
+            ".history",
+            "node_modules"
+          ],
+          "description": "勾选「忽略文件」时排除不显示的文件夹。按目录名或仓库相对路径匹配（如 .history、node_modules、dist/build；目录名匹配对任意层级生效）。设为空数组则全部显示。"
         }
       }
     },

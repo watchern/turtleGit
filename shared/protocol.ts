@@ -180,7 +180,7 @@ export interface RpcRequests {
   'ui:confirm': { req: { text: string }; res: boolean };
   'log:list': { req: LogQuery; res: CommitInfo[] };
   'log:files': { req: { repoRoot: string; hash: string }; res: CommitFile[] };
-  'ui:openNativeDiff': { req: { repoRoot: string; path: string; staged: boolean }; res: void };
+  'ui:openNativeDiff': { req: { repoRoot: string; path: string; staged: boolean | string }; res: void };
   /** 在 VSCode 编辑器中打开文件（非 diff） */
   'ui:openFile': { req: { repoRoot: string; path: string }; res: void };
   'ui:revealInExplorer': { req: { repoRoot: string; path: string }; res: void };
