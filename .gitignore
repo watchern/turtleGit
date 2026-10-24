@@ -8,3 +8,5 @@ out
 .workbuddy
 .vscode
 .history
+/.editorconfig
+/resources
