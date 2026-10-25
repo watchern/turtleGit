@@ -12,6 +12,12 @@ const ICONS = {
   refresh: `<svg width="14" height="14" viewBox="0 0 16 16" aria-hidden="true"><path d="M13.5 8a5.5 5.5 0 1 1-1.6-3.9" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/><path d="M13.9 1.6v3.3h-3.3" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>`,
   newBranch: `<svg width="14" height="14" viewBox="0 0 16 16" aria-hidden="true"><circle cx="4" cy="3.5" r="1.7" fill="none" stroke="currentColor" stroke-width="1.5"/><circle cx="4" cy="12.5" r="1.7" fill="none" stroke="currentColor" stroke-width="1.5"/><path d="M4 5.2v5.6M9.8 8h4.4M12 5.9v4.2" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>`,
   addRemote: `<svg width="14" height="14" viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="8" r="6" fill="none" stroke="currentColor" stroke-width="1.5"/><path d="M2.2 8h11.6M8 2.1c2.3 2.1 2.3 9.7 0 11.8M8 2.1c-2.3 2.1-2.3 9.7 0 11.8" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/></svg>`,
+  /** 当前分支：绿色对勾（IDEA Branches 风格） */
+  check: `<svg width="14" height="14" viewBox="0 0 16 16" aria-hidden="true"><path d="M3 8.6l3.2 3.2L13 4.6" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg>`,
+  /** 普通本地分支：分支线图标 */
+  branchIco: `<svg width="14" height="14" viewBox="0 0 16 16" aria-hidden="true"><circle cx="4" cy="3.5" r="1.7" fill="none" stroke="currentColor" stroke-width="1.5"/><circle cx="4" cy="12.5" r="1.7" fill="none" stroke="currentColor" stroke-width="1.5"/><path d="M4 5.2v5.6M4 8h5.2a2.8 2.8 0 0 0 2.8-2.8V5.2" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>`,
+  /** 远程分支：地球图标 */
+  remoteIco: `<svg width="13" height="13" viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="8" r="5.6" fill="none" stroke="currentColor" stroke-width="1.4"/><path d="M2.6 8h10.8M8 2.4c2.1 2 2.1 9.2 0 11.2M8 2.4c-2.1 2-2.1 9.2 0 11.2" fill="none" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/></svg>`,
 };
 
 /** 分组折叠状态（持久化在内存，webview 重载时重置为默认） */
@@ -57,11 +63,11 @@ export class BranchesSidebar {
   <div class="br-head">
     <span class="br-cur" id="br-cur">载入中…</span>
     <span class="flex"></span>
+    <input type="search" id="br-filter" class="filter" placeholder="过滤" title="按名称过滤分支">
     <button class="mini icon" id="br-pull" title="拉取（Pull）">${ICONS.pull}</button>
     <button class="mini icon" id="br-push" title="推送（Push）">${ICONS.push}</button>
     <button class="mini icon" id="br-refresh" title="刷新分支列表">${ICONS.refresh}</button>
   </div>
-  <input type="search" id="br-filter" class="filter" placeholder="过滤分支名">
   <div class="br-groups" id="br-groups"><div class="empty">载入中…</div></div>
 </div>
 <div class="ctx-menu" id="br-menu" hidden></div>
@@ -203,8 +209,10 @@ export class BranchesSidebar {
 
   private branchRow(b: BranchEntry): string {
     if (!b.isRemote) {
-      // 本地分支：三列 = 当前分支标记(*) | 提交号(固定6位) | 分支名(过长以 … 省略)
-      const star = b.isCurrent ? '*' : '';
+      // 本地分支：三列 = 版本图标(当前=绿色对勾) | 提交号(固定6位) | 分支名(过长以 … 省略)
+      const ico = b.isCurrent
+        ? `<span class="br-ico cur" title="当前分支">${ICONS.check}</span>`
+        : `<span class="br-ico" title="本地分支">${ICONS.branchIco}</span>`;
       const hash = b.commit ? b.commit.slice(0, 6) : '';
       const meta = b.upstream
         ? `跟踪 ${b.upstream}${b.ahead || b.behind ? ` ↑${b.ahead} ↓${b.behind}` : ''}`
@@ -212,7 +220,7 @@ export class BranchesSidebar {
           ? `↑${b.ahead} ↓${b.behind}`
           : '';
       return `<div class="br-row br-local${b.isCurrent ? ' current' : ''}" data-name="${escAttr(b.name)}" data-remote="0"${meta ? ` title="${escAttr(meta)}"` : ''}>
-  <span class="br-check">${star}</span>
+  ${ico}
   <span class="br-hash">${esc(hash)}</span>
   <span class="br-name-cell">
     <span class="br-name" title="${escAttr(b.name)}">${esc(b.name)}</span>
@@ -223,11 +231,11 @@ export class BranchesSidebar {
   </span>
 </div>`;
     }
-    // 远程分支：保持原有 flex 布局（名称 + ↑↓ + 提交号）
+    // 远程分支：保持原有 flex 布局（图标 + 名称 + ↑↓ + 提交号）
     const ab = b.ahead || b.behind ? `<span class="br-ab">↑${b.ahead} ↓${b.behind}</span>` : '';
     const up = b.upstream ? ` title="跟踪 ${escAttr(b.upstream)}"` : '';
     return `<div class="br-row${b.isCurrent ? ' current' : ''}" data-name="${escAttr(b.name)}" data-remote="1"${up}>
-  <span class="br-check"></span>
+  <span class="br-ico rem" title="远程分支">${ICONS.remoteIco}</span>
   <span class="br-name">${esc(b.shortName ?? b.name)}</span>
   ${ab}
   <span class="flex"></span>

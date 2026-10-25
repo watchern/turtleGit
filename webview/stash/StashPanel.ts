@@ -67,7 +67,7 @@ ${listPane}
     <div class="file-list" id="stash-files"></div>
   </section>
   <section class="pane right">
-    <div class="pane-head"><span id="diff-title">差异（stash 与其基线）</span><span class="diff-stat" id="diff-stat"></span></div>
+    <div class="pane-head"><span id="diff-title">差异（stash 与其基线）</span><span class="diff-stat" id="diff-stat"></span><span class="flex"></span><button class="mini" id="btn-open-editor" title="在 VSCode 原生 diff 编辑器中打开（stash 版本 ↔ 基线）" disabled>在编辑器中打开</button></div>
     <div class="diff-view full" id="diff-view"><div class="diff-empty">选择 stash 查看差异</div></div>
   </section>
 </div>
@@ -83,6 +83,16 @@ ${listPane}
     this.must('btn-apply').addEventListener('click', () => void this.run('apply'));
     this.must('btn-pop').addEventListener('click', () => void this.run('pop'));
     this.must('btn-drop').addEventListener('click', () => void this.run('drop'));
+    this.must('btn-open-editor').addEventListener('click', () => {
+      if (!this.selected || !this.currentFile) return;
+      // 复用 openCommitDiff 命令：`stash@{n}^..stash@{n}` 即 stash 与其基线，
+      // 与面板内展示的差异完全一致（GitBlobProvider 的 turtlegit: scheme 取两侧内容）
+      this.client.command('openCommitDiff', {
+        repoRoot: this.repoRoot,
+        path: this.currentFile.path,
+        hash: this.selected.ref,
+      });
+    });
 
     document.addEventListener('keydown', (e) => {
       if (e.key === 'F5') {
@@ -183,14 +193,16 @@ ${listPane}
     }
   }
 
-  /** 应用/恢复/删除按钮的可用状态（两种布局模式共用） */
+  /** 应用/恢复/删除/在编辑器打开按钮的可用状态（两种布局模式共用） */
   private updateActions(): void {
     (this.must('btn-apply') as HTMLButtonElement).disabled = !this.selected;
     (this.must('btn-pop') as HTMLButtonElement).disabled = !this.selected;
     (this.must('btn-drop') as HTMLButtonElement).disabled = !this.selected;
+    (this.must('btn-open-editor') as HTMLButtonElement).disabled = !this.selected || !this.currentFile;
   }
 
   private renderFiles(): void {
+    this.updateActions();
     this.must('file-count').textContent = `（${this.files.length}）`;
     if (!this.files.length) {
       this.filesEl.innerHTML = '<div class="empty">没有文件变更</div>';

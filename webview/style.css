@@ -223,6 +223,13 @@ button.mini {
   font-family: var(--vscode-editor-font-family, monospace);
 }
 
+/* pane-head 行内小按钮（如 Stash 面板「在编辑器中打开」） */
+.pane-head .mini {
+  flex: none;
+  font-size: 11px;
+  padding: 1px 6px;
+}
+
 /* ---------- 文件列表 ---------- */
 .file-list,
 .commit-list {
@@ -1133,8 +1140,7 @@ button.icon:hover {
 .side-tab.active {
   opacity: 1;
   font-weight: 600;
-  color: var(--focus);
-  background: color-mix(in srgb, var(--focus) 14%, transparent);
+  background: color-mix(in srgb, var(--fg) 6%, transparent);
   border-bottom-color: var(--focus);
 }
 
@@ -1338,26 +1344,30 @@ button.icon:hover {
 /* 本地分支：固定三列布局，分支名过长以 … 省略 */
 .br-row.br-local {
   display: grid;
-  grid-template-columns: 14px 56px 1fr;
+  grid-template-columns: 16px 56px 1fr;
   gap: 6px;
   align-items: center;
 }
 
-.br-check {
+/* 版本图标列（IDEA Branches 风格）：当前分支绿色对勾，其余分支/远程分支用分支线/地球图标 */
+.br-ico {
   flex: none;
-  text-align: center;
-  color: var(--focus);
-  font-weight: 700;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--muted);
 }
 
-.br-local .br-check {
-  width: 14px;
+.br-ico svg {
+  display: block;
 }
 
-/* 当前分支星号：加大加粗，一眼可辨 */
-.br-local .br-check:not(:empty) {
-  font-size: 14px;
-  line-height: 1;
+.br-ico.cur {
+  color: #2ea043;
+}
+
+.br-ico.rem {
+  opacity: 0.75;
 }
 
 /* 分支名单元格：名称自适应省略 + 悬停显示的操作按钮（重命名 / 删除） */
@@ -1461,8 +1471,18 @@ button.icon:hover {
   white-space: nowrap;
 }
 
-.br-view .filter {
-  margin: 0 0 6px;
+/* 筛选框并入当前分支标题行（不再独占一行）：紧凑宽度，位于分支名与操作图标之间 */
+.br-head .filter {
+  flex: none;
+  width: 84px;
+  min-width: 52px;
+  margin: 0;
+  padding: 2px 6px;
+  font-size: 11px;
+}
+
+.br-head .filter::-webkit-search-cancel-button {
+  cursor: pointer;
 }
 
 .br-groups {
@@ -1700,8 +1720,18 @@ button.mini.icon svg {
   flex: none;
 }
 
-.br-view .filter {
-  margin: 0 0px 6px;
+/* 筛选框并入当前分支标题行（不再独占一行）：紧凑宽度，位于分支名与操作图标之间 */
+.br-head .filter {
+  flex: none;
+  width: 84px;
+  min-width: 52px;
+  margin: 0;
+  padding: 2px 6px;
+  font-size: 11px;
+}
+
+.br-head .filter::-webkit-search-cancel-button {
+  cursor: pointer;
 }
 
 .br-groups {
@@ -1767,12 +1797,6 @@ button.mini.icon svg {
 }
 
 .br-row.current .br-name {
-  color: var(--focus);
-}
-
-.br-check {
-  flex: none;
-  width: 12px;
   color: var(--focus);
 }
 
@@ -1856,8 +1880,7 @@ button.mini.icon {
 .side-tab.active {
   opacity: 1;
   font-weight: 600;
-  color: var(--focus);
-  background: color-mix(in srgb, var(--focus) 14%, transparent);
+  background: color-mix(in srgb, var(--fg) 6%, transparent);
   border-bottom-color: var(--focus);
 }
 

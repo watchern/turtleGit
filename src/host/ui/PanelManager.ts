@@ -931,11 +931,13 @@ export class PanelManager {
               return;
             }
             const left = this.blobUriFor(abs, `${p['hash']}^`, repoRoot);
+            // stash@{n} 等选择器含 @{}，截 7 位会得到 "stash@{"——原样显示
+            const label = /[@{}]/.test(p['hash']) ? p['hash'] : p['hash'].slice(0, 7);
             await vscode.commands.executeCommand(
               'vscode.diff',
               left,
               right,
-              `${p['path']} (${p['hash'].slice(0, 7)})`,
+              `${p['path']} (${label})`,
               { preview: true },
             );
           });
