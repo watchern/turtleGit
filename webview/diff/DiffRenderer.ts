@@ -22,6 +22,12 @@ interface Hunk {
   lines: string[];
 }
 
+/** 文件两侧总行数（用于在最后一个 hunk 之后补「末尾折叠 gap」） */
+export interface DiffTail {
+  old: number;
+  new: number;
+}
+
 function parsePatch(patch: string): { fileName: string; hunks: Hunk[] } {
   const lines = patch.split(/\r?\n/);
   let fileName = '';
@@ -64,12 +70,36 @@ function parsePatch(patch: string): { fileName: string; hunks: Hunk[] } {
   return { fileName, hunks };
 }
 
-export function rowsSideBySide(patch: string): DiffRow[] {
+/**
+ * 末尾省略区（最后一个 hunk 之后到 EOF）：git patch 只含 hunk 附近的行，
+ * 尾部未展示的行在渲染侧需要一个可展开的 gap 行。最后一个 hunk 含全部
+ * 最后的改动，故尾部剩余行数两侧必然相等；纯新增/删除文件（一侧为空）
+ * 不生成。不传 tail 时行为与旧版一致（无末尾 gap）。
+ */
+function trailingGap(prevOldEnd: number, prevNewEnd: number, sawHunk: boolean, tail?: DiffTail): DiffRow | undefined {
+  if (!sawHunk || !tail) return undefined;
+  const gapOld = tail.old - prevOldEnd;
+  const gapNew = tail.new - prevNewEnd;
+  if (gapOld >= 1 && gapOld === gapNew) {
+    return {
+      kind: 'gap',
+      oldStart: prevOldEnd + 1,
+      oldEnd: tail.old,
+      newStart: prevNewEnd + 1,
+      newEnd: tail.new,
+    };
+  }
+  return undefined;
+}
+
+export function rowsSideBySide(patch: string, tail?: DiffTail): DiffRow[] {
   const { hunks } = parsePatch(patch);
   const rows: DiffRow[] = [];
   let prevOldEnd = 0;
   let prevNewEnd = 0;
+  let sawHunk = false;
   for (const hunk of hunks) {
+    sawHunk = true;
     // hunk 之间（含首个 hunk 之前）被省略的上下文行 → gap 折叠行（波浪线 + 可展开）
     const gapOldStart = prevOldEnd + 1;
     const gapOldEnd = hunk.oldStart - 1;
@@ -140,15 +170,19 @@ export function rowsSideBySide(patch: string): DiffRow[] {
     prevOldEnd = leftNo - 1;
     prevNewEnd = rightNo - 1;
   }
+  const trail = trailingGap(prevOldEnd, prevNewEnd, sawHunk, tail);
+  if (trail) rows.push(trail);
   return rows;
 }
 
-export function rowsUnified(patch: string): DiffRow[] {
+export function rowsUnified(patch: string, tail?: DiffTail): DiffRow[] {
   const { hunks } = parsePatch(patch);
   const rows: DiffRow[] = [];
   let prevOldEnd = 0;
   let prevNewEnd = 0;
+  let sawHunk = false;
   for (const hunk of hunks) {
+    sawHunk = true;
     const gapOldStart = prevOldEnd + 1;
     const gapOldEnd = hunk.oldStart - 1;
     const gapNewStart = prevNewEnd + 1;
@@ -187,6 +221,8 @@ export function rowsUnified(patch: string): DiffRow[] {
     prevOldEnd = leftNo - 1;
     prevNewEnd = rightNo - 1;
   }
+  const trail = trailingGap(prevOldEnd, prevNewEnd, sawHunk, tail);
+  if (trail) rows.push(trail);
   return rows;
 }
 
@@ -268,11 +304,11 @@ function renderUnified(rows: DiffRow[]): string {
   return `<table class="diff-table unified"><colgroup><col class="c-sign"><col></colgroup><tbody>${renderRows(rows, 'unified')}</tbody></table>`;
 }
 
-export function renderDiff(patch: string, mode: 'side' | 'unified'): string {
+export function renderDiff(patch: string, mode: 'side' | 'unified', tail?: DiffTail): string {
   if (!patch || !patch.trim()) {
     return '<div class="diff-empty">无差异</div>';
   }
-  return mode === 'side' ? renderSideBySide(rowsSideBySide(patch)) : renderUnified(rowsUnified(patch));
+  return mode === 'side' ? renderSideBySide(rowsSideBySide(patch, tail)) : renderUnified(rowsUnified(patch, tail));
 }
 
 export function patchStat(patch: string): { additions: number; deletions: number } {

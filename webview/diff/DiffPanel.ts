@@ -1,6 +1,6 @@
 import { RpcClient } from '../bridge';
 import { renderDiff, patchStat } from './DiffRenderer';
-import { bindDiffInteractions } from './expander';
+import { bindDiffInteractions, loadPatchAndCounts } from './expander';
 
 /**
  * 独立差异面板：单文件对比（工作区 ↔ HEAD / 已暂存 ↔ HEAD）。
@@ -47,13 +47,13 @@ export class DiffPanel {
 
   private async load(): Promise<void> {
     try {
-      const patch = await this.client.send('diff:patch', {
+      const { patch, tail } = await loadPatchAndCounts(this.client, {
         repoRoot: this.repoRoot,
         path: this.filePath,
         staged: this.staged,
       });
       const view = document.getElementById('diff-view')!;
-      view.innerHTML = renderDiff(patch, this.diffMode);
+      view.innerHTML = renderDiff(patch, this.diffMode, tail);
       bindDiffInteractions(
         view,
         this.client,

@@ -218,6 +218,19 @@ export interface RpcRequests {
     };
     res: { oldLines: string[]; newLines: string[] };
   };
+  /** 统计 diff 两侧文件的总行数（渲染「末尾折叠 gap」用：git patch 只含 hunk
+   * 附近的行，最后一个 hunk 之后到 EOF 的省略区在渲染侧不可见，需要补一个
+   * 可展开的 gap 行）。某侧文件不存在时该侧计 0。 */
+  'diff:lineCounts': {
+    req: {
+      repoRoot: string;
+      path: string;
+      staged?: boolean;
+      against?: string;
+      range?: string;
+    };
+    res: { old: number; new: number };
+  };
   'commit:create': { req: CommitRequest; res: CommitResult };
   'ui:confirm': { req: { text: string }; res: boolean };
   'log:list': { req: LogQuery; res: CommitInfo[] };

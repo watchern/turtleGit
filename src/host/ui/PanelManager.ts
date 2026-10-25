@@ -623,6 +623,10 @@ export class PanelManager {
       return { oldLines, newLines };
     });
 
+    this.router.register('diff:lineCounts', ({ repoRoot, path: p, staged, against, range }) =>
+      this.git.fileLineCounts(repoRoot, p, { staged, against, range }),
+    );
+
     this.router.register('ui:confirm', async ({ text }) => {
       const answer = await vscode.window.showWarningMessage(text, { modal: true }, '确定');
       return answer === '确定';

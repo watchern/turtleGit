@@ -62,6 +62,71 @@ export function promptValue(text: string, initial = ''): Promise<string | null> 
   });
 }
 
+/** 多字段模态输入框（替代「连续多个 window.prompt」的一步一步填写）。
+ * 一次对话框内填写所有字段：Enter 跳到下一字段、最后一个字段回车提交，
+ * Esc / 遮罩点击取消。返回各字段 trim 后的值数组；取消返回 null。
+ */
+export function promptFields(
+  title: string,
+  fields: Array<{ label: string; initial?: string; placeholder?: string }>,
+): Promise<string[] | null> {
+  return new Promise((resolve) => {
+    const overlay = document.createElement('div');
+    overlay.className = 'modal-overlay';
+    overlay.innerHTML = `
+<div class="modal" role="dialog" aria-modal="true">
+  <div class="modal-text"></div>
+  <div class="modal-fields">
+    ${fields
+      .map(
+        (f, i) =>
+          `<label class="modal-field"><span class="modal-field-label"></span><input class="modal-input" type="text" spellcheck="false" data-i="${i}"></label>`,
+      )
+      .join('')}
+  </div>
+  <div class="modal-btns">
+    <button class="mini" data-act="cancel">取消</button>
+    <button class="mini primary" data-act="ok">确定</button>
+  </div>
+</div>`;
+    (overlay.querySelector('.modal-text') as HTMLElement).textContent = title;
+    const inputs = [...overlay.querySelectorAll<HTMLInputElement>('.modal-input')];
+    fields.forEach((f, i) => {
+      inputs[i].value = f.initial ?? '';
+      inputs[i].placeholder = f.placeholder ?? '';
+      (overlay.querySelectorAll('.modal-field-label')[i] as HTMLElement).textContent = f.label;
+    });
+    let done = false;
+    const finish = (value: string[] | null): void => {
+      if (done) return;
+      done = true;
+      overlay.remove();
+      resolve(value === null ? null : value.map((v) => v.trim()));
+    };
+    overlay.querySelector('[data-act="ok"]')!.addEventListener('click', () => finish(inputs.map((x) => x.value)));
+    overlay.querySelector('[data-act="cancel"]')!.addEventListener('click', () => finish(null));
+    inputs.forEach((input, i) => {
+      input.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter') {
+          e.preventDefault();
+          if (i < inputs.length - 1) inputs[i + 1].focus();
+          else finish(inputs.map((x) => x.value));
+        } else if (e.key === 'Escape') {
+          e.preventDefault();
+          finish(null);
+        }
+      });
+    });
+    // 点击遮罩空白处视为取消（mousedown 起点在遮罩上才算，避免拖拽选中文本误关）
+    overlay.addEventListener('mousedown', (e) => {
+      if (e.target === overlay) finish(null);
+    });
+    document.body.appendChild(overlay);
+    inputs[0]?.focus();
+    inputs[0]?.select();
+  });
+}
+
 /** 在指定位置弹出上下文菜单，返回所选 index 或 null */
 export function showMenuAt(
   host: HTMLElement,

@@ -1,6 +1,6 @@
 import { RpcClient } from '../bridge';
 import { renderDiff, patchStat } from '../diff/DiffRenderer';
-import { bindDiffInteractions } from '../diff/expander';
+import { bindDiffInteractions, loadPatchAndCounts } from '../diff/expander';
 import { toast, promptValue, showMenuAt, escapeHtml } from '../ui/dialogs';
 import { computeLanes, refBadges, buildEdges, laneColor, badgeWidth, GraphNode } from './lanes';
 import { CommitFile, CommitInfo } from '../../shared/protocol';
@@ -307,13 +307,14 @@ ${refs}
       return;
     }
     try {
-      const patch = await this.client.send('diff:patch', {
+      const range = `${this.selectedHash}^..${this.selectedHash}`;
+      const { patch, tail } = await loadPatchAndCounts(this.client, {
         repoRoot: this.repoRoot,
         path: this.currentFile.path,
         staged: false,
-        range: `${this.selectedHash}^..${this.selectedHash}`,
+        range,
       });
-      this.diffEl.innerHTML = renderDiff(patch, 'side');
+      this.diffEl.innerHTML = renderDiff(patch, 'side', tail);
       bindDiffInteractions(
         this.diffEl,
         this.client,
@@ -321,7 +322,7 @@ ${refs}
           repoRoot: this.repoRoot,
           path: this.currentFile.path,
           staged: false,
-          range: `${this.selectedHash}^..${this.selectedHash}`,
+          range,
         },
         'side',
       );

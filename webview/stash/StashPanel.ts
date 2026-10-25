@@ -1,13 +1,15 @@
 import { RpcClient } from '../bridge';
 import { renderDiff, patchStat } from '../diff/DiffRenderer';
-import { bindDiffInteractions } from '../diff/expander';
+import { bindDiffInteractions, loadPatchAndCounts } from '../diff/expander';
 import { toast, promptValue, escapeHtml } from '../ui/dialogs';
 import { StashEntry, CommitFile } from '../../shared/protocol';
 
 /**
  * Stash 管理（主窗口编辑器标签内打开）：复刻 TortoiseGit Stash 对话框。
- * 三列布局：Stash 列表 | 变更文件 | 文件差异。
- * 一个 stash 常含多个文件，每文件可分别查看改动记录（侧边栏「查看」入口指向本面板）。
+ * 默认三列布局：Stash 列表 | 变更文件 | 文件差异。
+ * 一个 stash 常含多个文件，每文件可分别查看改动记录。
+ * 侧边栏「查看」入口（带入 stashRef）只聚焦某一条 stash——此时隐藏
+ * Stash 列表列（用户已在侧边栏选好），只保留「变更文件 | 差异」两列。
  */
 export class StashPanel {
   private stashes: StashEntry[] = [];
@@ -16,9 +18,11 @@ export class StashPanel {
   private currentFile: CommitFile | undefined;
   /** 首次 reload 后需要预选的 stash ref（侧边栏「查看」带入） */
   private pendingRef: string | undefined;
+  /** 带入 ref 时不显示 Stash 列表列（两列布局） */
+  private readonly hideList: boolean;
 
   private el: HTMLElement;
-  private listEl!: HTMLElement;
+  private listEl: HTMLElement | undefined;
   private filesEl!: HTMLElement;
   private diffEl!: HTMLElement;
   private statEl!: HTMLElement;
@@ -32,11 +36,19 @@ export class StashPanel {
   ) {
     this.el = root;
     this.pendingRef = stashRef;
+    this.hideList = !!stashRef;
     this.build();
     void this.reload();
   }
 
   private build(): void {
+    const listPane = this.hideList
+      ? ''
+      : `
+  <section class="pane left">
+    <div class="pane-head"><span>Stash 列表</span><span class="count" id="stash-count"></span></div>
+    <div class="commit-list" id="stash-list"></div>
+  </section>`;
     this.el.innerHTML = `
 <div class="toolbar">
   <button class="primary" id="btn-push">保存 Stash…</button>
@@ -48,11 +60,8 @@ export class StashPanel {
   <span class="flex"></span>
   <span class="repo-name"></span>
 </div>
-<div class="split stash-split">
-  <section class="pane left">
-    <div class="pane-head"><span>Stash 列表</span><span class="count" id="stash-count"></span></div>
-    <div class="commit-list" id="stash-list"></div>
-  </section>
+<div class="split stash-split${this.hideList ? ' no-list' : ''}">
+${listPane}
   <section class="pane mid">
     <div class="pane-head"><span>变更文件</span><span class="count" id="file-count"></span></div>
     <div class="file-list" id="stash-files"></div>
@@ -63,7 +72,7 @@ export class StashPanel {
   </section>
 </div>
 `;
-    this.listEl = this.must('stash-list');
+    this.listEl = this.hideList ? undefined : this.must('stash-list');
     this.filesEl = this.must('stash-files');
     this.diffEl = this.must('diff-view');
     this.statEl = this.must('diff-stat');
@@ -93,7 +102,8 @@ export class StashPanel {
     try {
       this.stashes = await this.client.send('stash:list', { repoRoot: this.repoRoot });
     } catch (err) {
-      this.listEl.innerHTML = `<div class="empty">读取失败：${this.esc(String(err))}</div>`;
+      if (this.listEl) this.listEl.innerHTML = `<div class="empty">读取失败：${this.esc(String(err))}</div>`;
+      else this.showEmptyDiff();
       return;
     }
     // 预选（侧边栏「查看」带入的 ref）：仅生效一次
@@ -106,6 +116,14 @@ export class StashPanel {
         await this.selectStash(hit.ref);
         return;
       }
+      // ref 已不存在（被删除/弹出）：清理并提示
+      this.selected = undefined;
+      this.files = [];
+      this.currentFile = undefined;
+      this.renderList();
+      this.renderFiles();
+      this.showEmptyDiff();
+      return;
     }
     // 已选 stash 被删除/弹出后清理
     if (this.selected && !this.stashes.some((s) => s.ref === this.selected!.ref)) {
@@ -119,10 +137,9 @@ export class StashPanel {
   }
 
   private renderList(): void {
+    this.updateActions();
+    if (!this.listEl) return; // 无列表模式（侧边栏带入 ref）
     this.must('stash-count').textContent = `（${this.stashes.length}）`;
-    (this.must('btn-apply') as HTMLButtonElement).disabled = !this.selected;
-    (this.must('btn-pop') as HTMLButtonElement).disabled = !this.selected;
-    (this.must('btn-drop') as HTMLButtonElement).disabled = !this.selected;
     if (!this.stashes.length) {
       this.listEl.innerHTML = '<div class="empty">没有 stash</div>';
       this.files = [];
@@ -166,6 +183,13 @@ export class StashPanel {
     }
   }
 
+  /** 应用/恢复/删除按钮的可用状态（两种布局模式共用） */
+  private updateActions(): void {
+    (this.must('btn-apply') as HTMLButtonElement).disabled = !this.selected;
+    (this.must('btn-pop') as HTMLButtonElement).disabled = !this.selected;
+    (this.must('btn-drop') as HTMLButtonElement).disabled = !this.selected;
+  }
+
   private renderFiles(): void {
     this.must('file-count').textContent = `（${this.files.length}）`;
     if (!this.files.length) {
@@ -193,7 +217,9 @@ export class StashPanel {
   }
 
   private showEmptyDiff(): void {
-    this.diffEl.innerHTML = '<div class="diff-empty">选择 stash 查看差异</div>';
+    this.diffEl.innerHTML = this.hideList
+      ? '<div class="diff-empty">该 stash 已被删除或弹出；请在侧边栏「暂存」标签选择其他 stash</div>'
+      : '<div class="diff-empty">选择 stash 查看差异</div>';
     this.statEl.textContent = '';
     this.diffTitleEl.textContent = '差异（stash 与其基线）';
   }
@@ -205,19 +231,20 @@ export class StashPanel {
       return;
     }
     try {
-      const patch = await this.client.send('diff:patch', {
+      const range = `${this.selected.ref}^..${this.selected.ref}`;
+      const { patch, tail } = await loadPatchAndCounts(this.client, {
         repoRoot: this.repoRoot,
         path: this.currentFile.path,
         staged: false,
-        range: `${this.selected.ref}^..${this.selected.ref}`,
+        range,
       });
-      this.diffEl.innerHTML = renderDiff(patch, 'side');
+      this.diffEl.innerHTML = renderDiff(patch, 'side', tail);
       this.diffTitleEl.textContent = `${this.currentFile.path}（${this.selected.ref}）`;
       bindDiffInteractions(this.diffEl, this.client, {
         repoRoot: this.repoRoot,
         path: this.currentFile.path,
         staged: false,
-        range: `${this.selected.ref}^..${this.selected.ref}`,
+        range,
       }, 'side');
       const stat = patchStat(patch);
       this.statEl.textContent = stat.additions || stat.deletions ? `+${stat.additions} -${stat.deletions}` : '';

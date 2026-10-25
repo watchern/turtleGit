@@ -730,7 +730,7 @@ async function main(): Promise<void> {
 
   console.log('== diff 渲染（gap 折叠行 / 并排行号分列） ==');
   {
-    const { rowsSideBySide, renderDiff, contextDiffRows } = await import('../webview/diff/DiffRenderer');
+    const { rowsSideBySide, rowsUnified, renderDiff, contextDiffRows } = await import('../webview/diff/DiffRenderer');
     const patch = [
       'diff --git a/f.txt b/f.txt',
       'index 111..222 100644',
@@ -774,6 +774,48 @@ async function main(): Promise<void> {
       ctx.length === 2 && ctx[0]?.leftNo === 10 && ctx[0]?.rightNo === 20 && ctx[1]?.leftNo === 11 && ctx[1]?.rightNo === 21,
       ctx,
     );
+
+    // 末尾省略区（最后一个 hunk 之后到 EOF）：git patch 不含这些行，
+    // 传入两侧总行数后应补一个可展开的 gap 行
+    const patch4 = ['--- a/f.txt', '+++ b/f.txt', '@@ -2,3 +2,3 @@', ' line2', '-line3', '+line3-mod', ' line4'].join('\n');
+    const gaps4 = rowsSideBySide(patch4, { old: 10, new: 10 }).filter((r) => r.kind === 'gap');
+    check(
+      '末尾省略区生成 gap（旧 5..10 / 新 5..10）',
+      gaps4.length === 2 &&
+        gaps4[1]?.oldStart === 5 &&
+        gaps4[1]?.oldEnd === 10 &&
+        gaps4[1]?.newStart === 5 &&
+        gaps4[1]?.newEnd === 10,
+      gaps4,
+    );
+    check('不传 tail 无末尾 gap（向后兼容）', rowsSideBySide(patch4).filter((r) => r.kind === 'gap').length === 1);
+    check('tail 到 hunk 末尾则无末尾 gap', rowsSideBySide(patch4, { old: 4, new: 4 }).filter((r) => r.kind === 'gap').length === 1);
+    check('renderDiff 末尾 gap 渲染展开按钮（6 行）', renderDiff(patch4, 'side', { old: 10, new: 10 }).includes('展开 6 行'));
+    check('unified 模式同样生成末尾 gap', rowsUnified(patch4, { old: 10, new: 10 }).filter((r) => r.kind === 'gap').length === 2);
+    // 纯新增 / 纯删除文件：一侧行数为 0，不生成虚假末尾 gap
+    const patchNew = ['--- /dev/null', '+++ b/n.txt', '@@ -0,0 +1,2 @@', '+x', '+y'].join('\n');
+    check('新文件不生成末尾 gap', rowsSideBySide(patchNew, { old: 0, new: 2 }).filter((r) => r.kind === 'gap').length === 0);
+    const patchDel = ['--- a/d.txt', '+++ /dev/null', '@@ -1,2 +0,0 @@', '-x', '-y'].join('\n');
+    check('删除文件不生成末尾 gap', rowsSideBySide(patchDel, { old: 2, new: 0 }).filter((r) => r.kind === 'gap').length === 0);
+
+    // fileLineCounts（末尾 gap 的数据来源）：独立仓库验证两侧总行数
+    const dir3 = fs.mkdtempSync(path.join(os.tmpdir(), 'turtlegit-lc-'));
+    const run3 = (args: string[]) => {
+      const r = cp.spawnSync('git', args, { cwd: dir3, encoding: 'utf8' });
+      if (r.status !== 0) throw new Error(`git ${args.join(' ')} failed: ${r.stderr}`);
+      return r.stdout;
+    };
+    run3(['init', '-b', 'main']);
+    run3(['config', 'user.email', 'lc@example.com']);
+    run3(['config', 'user.name', '行数测试']);
+    fs.writeFileSync(path.join(dir3, 'f.txt'), 'l1\nl2\nl3\n', 'utf8');
+    run3(['add', '-A']);
+    run3(['commit', '-m', 'init']);
+    fs.writeFileSync(path.join(dir3, 'f.txt'), 'l1\nl2\nl3\nl4\nl5\n', 'utf8');
+    const lc = await git.fileLineCounts(dir3, 'f.txt', {});
+    check('fileLineCounts 旧侧 3 行', lc.old === 3, lc);
+    check('fileLineCounts 新侧 5 行', lc.new === 5, lc);
+    fs.rmSync(dir3, { recursive: true, force: true });
   }
 
   console.log('== 原生 diff 内容提供器（blobAtRef / turtlegit: URI） ==');

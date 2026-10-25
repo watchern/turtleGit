@@ -1,6 +1,6 @@
 import { RpcClient } from '../bridge';
 import { renderDiff, patchStat } from '../diff/DiffRenderer';
-import { bindDiffInteractions } from '../diff/expander';
+import { bindDiffInteractions, loadPatchAndCounts } from '../diff/expander';
 import { buildFileTree, collectFiles, FileTreeNode } from '../ui/fileTree';
 import { loadState, saveState } from '../state';
 import { statusBadge, esc, escAttr } from './common';
@@ -568,12 +568,12 @@ export class CommitPanel {
     const staged = this.isStagedView(file);
     this.must('diff-title').textContent = `${path}（${staged ? '已暂存' : '工作区'}）`;
     try {
-      const patch = await this.client.send('diff:patch', {
+      const { patch, tail } = await loadPatchAndCounts(this.client, {
         repoRoot: this.repoRoot,
         path,
         staged,
       });
-      this.diffEl.innerHTML = renderDiff(patch, this.diffMode);
+      this.diffEl.innerHTML = renderDiff(patch, this.diffMode, tail);
       bindDiffInteractions(
         this.diffEl,
         this.client,

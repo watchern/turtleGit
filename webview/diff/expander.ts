@@ -1,5 +1,5 @@
 import { RpcClient } from '../bridge';
-import { contextDiffRows, renderRows } from './DiffRenderer';
+import { contextDiffRows, renderRows, DiffTail } from './DiffRenderer';
 
 export interface DiffContext {
   repoRoot: string;
@@ -7,6 +7,31 @@ export interface DiffContext {
   staged: boolean;
   against?: string;
   range?: string;
+}
+
+/** diff 加载参数（diff:patch 与 diff:lineCounts 共用同一组筛选条件） */
+export interface DiffLoadOpts {
+  repoRoot: string;
+  path: string;
+  staged?: boolean;
+  against?: string;
+  range?: string;
+}
+
+/**
+ * 拉取 patch 与两侧总行数（后者用于渲染「末尾折叠 gap」）。
+ * 行数统计失败（如新增/删除文件一侧不存在）时静默降级为无末尾 gap，
+ * 不影响 diff 主体展示。
+ */
+export async function loadPatchAndCounts(
+  client: RpcClient,
+  opts: DiffLoadOpts,
+): Promise<{ patch: string; tail?: DiffTail }> {
+  const [patch, counts] = await Promise.all([
+    client.send('diff:patch', { ...opts, staged: opts.staged ?? false }),
+    client.send('diff:lineCounts', opts).catch(() => undefined),
+  ]);
+  return { patch, tail: counts };
 }
 
 /** 点击行号高亮整行（并排模式左右同 tr，天然联动；再次点击取消）。 */

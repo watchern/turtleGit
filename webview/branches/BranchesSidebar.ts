@@ -1,5 +1,5 @@
 import { RpcClient } from '../bridge';
-import { toast, promptValue, showMenuAt, escapeHtml } from '../ui/dialogs';
+import { toast, promptValue, promptFields, showMenuAt, escapeHtml } from '../ui/dialogs';
 import { BranchEntry, BranchInfo, RemoteEntry } from '../../shared/protocol';
 
 const esc = (s: string): string => escapeHtml(s);
@@ -214,7 +214,13 @@ export class BranchesSidebar {
       return `<div class="br-row br-local${b.isCurrent ? ' current' : ''}" data-name="${escAttr(b.name)}" data-remote="0"${meta ? ` title="${escAttr(meta)}"` : ''}>
   <span class="br-check">${star}</span>
   <span class="br-hash">${esc(hash)}</span>
-  <span class="br-name" title="${escAttr(b.name)}">${esc(b.name)}</span>
+  <span class="br-name-cell">
+    <span class="br-name" title="${escAttr(b.name)}">${esc(b.name)}</span>
+    <span class="br-acts">
+      <button class="mini icon" data-act="rename" title="重命名分支">✎</button>
+      <button class="mini icon" data-act="del" title="删除分支">✕</button>
+    </span>
+  </span>
 </div>`;
     }
     // 远程分支：保持原有 flex 布局（名称 + ↑↓ + 提交号）
@@ -274,7 +280,7 @@ export class BranchesSidebar {
         void this.branchMenu(e.clientX, e.clientY, row.dataset.name!, row.dataset.remote === '1');
       });
     });
-    // 远程行按钮 / 分组标题行按钮
+    // 远程行按钮 / 分组标题行按钮 / 分支行悬停按钮
     this.groupsEl.querySelectorAll<HTMLElement>('[data-act]').forEach((btn) => {
       btn.addEventListener('click', (e) => {
         e.stopPropagation();
@@ -284,6 +290,14 @@ export class BranchesSidebar {
         else if (act === 'new-branch') void this.createBranch();
         else if (act === 'edit-remote') void this.editRemote(name);
         else if (act === 'del-remote') void this.removeRemote(name);
+        else if (act === 'rename' || act === 'del') {
+          // 本地分支行悬停按钮：重命名 / 删除（与右键菜单同操作）
+          const row = btn.closest<HTMLElement>('.br-row[data-name]');
+          const bname = row?.dataset.name ?? '';
+          if (!bname) return;
+          if (act === 'rename') void this.rename(bname);
+          else void this.remove(bname);
+        }
       });
     });
   }
@@ -352,6 +366,10 @@ export class BranchesSidebar {
   }
 
   private async remove(name: string, force = false): Promise<void> {
+    if (this.branches.find((x) => x.name === name)?.isCurrent) {
+      toast('不能删除当前分支（请先切换到其他分支）', true);
+      return;
+    }
     if (!(await this.confirm(`确定删除本地分支「${name}」？`))) return;
     try {
       await this.client.send('branch:delete', { repoRoot: this.repoRoot, name, force });
@@ -381,10 +399,14 @@ export class BranchesSidebar {
   // ---------- 远程管理 ----------
 
   private async addRemote(): Promise<void> {
-    const name = await promptValue('远程仓库名称：', 'origin');
-    if (!name) return;
-    const url = await promptValue(`${name} 的地址：`, '');
-    if (!url) return;
+    // 一次对话框填写所有项（名称 + 地址），不再一步一步连续 prompt
+    const vals = await promptFields('添加远程仓库', [
+      { label: '名称', initial: 'origin', placeholder: '如 origin' },
+      { label: '地址（URL）', initial: '', placeholder: 'https://… 或 git@…' },
+    ]);
+    if (!vals) return;
+    const [name, url] = vals;
+    if (!name || !url) return;
     await this.run(
       '添加远程',
       () => this.client.send('remote:add', { repoRoot: this.repoRoot, name, url }),

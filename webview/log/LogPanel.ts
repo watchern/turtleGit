@@ -1,6 +1,6 @@
 import { RpcClient } from '../bridge';
 import { renderDiff, patchStat } from '../diff/DiffRenderer';
-import { bindDiffInteractions } from '../diff/expander';
+import { bindDiffInteractions, loadPatchAndCounts } from '../diff/expander';
 import { toast, promptValue, showMenuAt, escapeHtml } from '../ui/dialogs';
 import { CommitFile, CommitInfo } from '../../shared/protocol';
 
@@ -331,13 +331,14 @@ export class LogPanel {
       return;
     }
     try {
-      const patch = await this.client.send('diff:patch', {
+      const range = `${this.selectedHash}^..${this.selectedHash}`;
+      const { patch, tail } = await loadPatchAndCounts(this.client, {
         repoRoot: this.repoRoot,
         path: this.currentFile.path,
         staged: false,
-        range: `${this.selectedHash}^..${this.selectedHash}`,
+        range,
       });
-      this.diffEl.innerHTML = renderDiff(patch, this.diffMode);
+      this.diffEl.innerHTML = renderDiff(patch, this.diffMode, tail);
       bindDiffInteractions(
         this.diffEl,
         this.client,
@@ -345,7 +346,7 @@ export class LogPanel {
           repoRoot: this.repoRoot,
           path: this.currentFile.path,
           staged: false,
-          range: `${this.selectedHash}^..${this.selectedHash}`,
+          range,
         },
         this.diffMode,
       );

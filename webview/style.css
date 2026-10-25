@@ -1132,8 +1132,10 @@ button.icon:hover {
 
 .side-tab.active {
   opacity: 1;
-  border-bottom-color: var(--focus);
   font-weight: 600;
+  color: var(--focus);
+  background: color-mix(in srgb, var(--focus) 14%, transparent);
+  border-bottom-color: var(--focus);
 }
 
 .side-body {
@@ -1350,6 +1352,51 @@ button.icon:hover {
 
 .br-local .br-check {
   width: 14px;
+}
+
+/* 当前分支星号：加大加粗，一眼可辨 */
+.br-local .br-check:not(:empty) {
+  font-size: 14px;
+  line-height: 1;
+}
+
+/* 分支名单元格：名称自适应省略 + 悬停显示的操作按钮（重命名 / 删除） */
+.br-local .br-name-cell {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+}
+
+.br-local .br-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.br-acts {
+  flex: none;
+  display: none;
+  align-items: center;
+  gap: 2px;
+}
+
+.br-row:hover .br-acts {
+  display: inline-flex;
+}
+
+.br-acts .mini.icon {
+  padding: 0 3px;
+  font-size: 11px;
+  line-height: 1.3;
+  color: var(--muted);
+}
+
+.br-acts .mini.icon:hover {
+  color: var(--fg);
+  background: color-mix(in srgb, var(--fg) 10%, transparent);
 }
 
 .br-name {
@@ -1582,6 +1629,30 @@ button.mini.icon svg {
   gap: 8px;
 }
 
+/* 多字段模态框（一次填写所有项，如添加远程仓库） */
+.modal-fields {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+
+.modal-field {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.modal-field-label {
+  font-size: 11px;
+  color: var(--muted);
+}
+
+.modal-fields .modal-input {
+  margin-bottom: 0;
+}
+
 
 /* ---------- 侧边栏分支视图（IDEA Branches 风格） ---------- */
 .br-view {
@@ -1784,8 +1855,10 @@ button.mini.icon {
 
 .side-tab.active {
   opacity: 1;
-  border-bottom-color: var(--focus);
   font-weight: 600;
+  color: var(--focus);
+  background: color-mix(in srgb, var(--focus) 14%, transparent);
+  border-bottom-color: var(--focus);
 }
 
 .side-body {

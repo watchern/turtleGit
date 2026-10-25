@@ -270,6 +270,63 @@ export class GitService {
   }
 
   /**
+   * 取 diff 某一侧的完整文件内容：
+   * side='old'：基准侧内容（range 的左 ref / against / HEAD）；
+   * side='new'：range 的右 ref，否则 staged 取 index、非 staged 取工作区文件。
+   */
+  private async sideContent(
+    repoRoot: string,
+    filePath: string,
+    side: 'old' | 'new',
+    opts: { staged?: boolean; against?: string; range?: string },
+  ): Promise<string> {
+    if (opts.range) {
+      const [l, r] = opts.range.split('..');
+      const ref = side === 'old' ? l : r;
+      return this.runner.out(['show', `${ref}:${filePath}`], { cwd: repoRoot, timeoutMs: 30000 });
+    }
+    if (side === 'old') {
+      const ref = opts.against ?? 'HEAD';
+      return this.runner.out(['show', `${ref}:${filePath}`], { cwd: repoRoot, timeoutMs: 30000 });
+    }
+    if (opts.staged) {
+      return this.runner.out(['show', `:${filePath}`], { cwd: repoRoot, timeoutMs: 30000 });
+    }
+    return fs.readFileSync(absPathIn(repoRoot, filePath), 'utf8');
+  }
+
+  /** 行数归一化：按行 split 后去掉文件末尾换行产生的空元素（与 contextLines 一致） */
+  private static countLines(content: string): number {
+    const lines = content.split(/\r?\n/);
+    if (lines.length && lines[lines.length - 1] === '') lines.pop();
+    return lines.length;
+  }
+
+  /**
+   * 统计 diff 两侧文件的总行数（渲染「末尾折叠 gap」用）。
+   * 最后一个 hunk 之后到 EOF 的省略行不在 patch 里，渲染侧需要知道两侧
+   * 总行数才能补出这个可展开的 gap。某侧文件不存在（如新增/删除文件）
+   * 或读取失败时该侧计 0——调用方据此不生成 gap。
+   */
+  async fileLineCounts(
+    repoRoot: string,
+    filePath: string,
+    opts: { staged?: boolean; against?: string; range?: string } = {},
+  ): Promise<{ old: number; new: number }> {
+    const [oldR, newR] = await Promise.all([
+      this.sideContent(repoRoot, filePath, 'old', opts).then(
+        (c) => GitService.countLines(c),
+        () => 0,
+      ),
+      this.sideContent(repoRoot, filePath, 'new', opts).then(
+        (c) => GitService.countLines(c),
+        () => 0,
+      ),
+    ]);
+    return { old: oldR, new: newR };
+  }
+
+  /**
    * 读取 diff 中被省略的上下文行（gap 折叠行展开用）。
    * side='old'：基准侧内容（range 的左 ref / against / HEAD）；
    * side='new'：range 的右 ref，否则 staged 取 index、非 staged 取工作区文件。
@@ -283,28 +340,7 @@ export class GitService {
     end: number,
     opts: { staged?: boolean; against?: string; range?: string } = {},
   ): Promise<string[]> {
-    let content: string;
-    if (opts.range) {
-      const [l, r] = opts.range.split('..');
-      const ref = side === 'old' ? l : r;
-      content = await this.runner.out(['show', `${ref}:${filePath}`], {
-        cwd: repoRoot,
-        timeoutMs: 30000,
-      });
-    } else if (side === 'old') {
-      const ref = opts.against ?? 'HEAD';
-      content = await this.runner.out(['show', `${ref}:${filePath}`], {
-        cwd: repoRoot,
-        timeoutMs: 30000,
-      });
-    } else if (opts.staged) {
-      content = await this.runner.out(['show', `:${filePath}`], {
-        cwd: repoRoot,
-        timeoutMs: 30000,
-      });
-    } else {
-      content = fs.readFileSync(absPathIn(repoRoot, filePath), 'utf8');
-    }
+    const content = await this.sideContent(repoRoot, filePath, side, opts);
     const lines = content.split(/\r?\n/);
     // 文件以换行结尾时 split 多出一个末尾空元素，去掉
     if (lines.length && lines[lines.length - 1] === '') lines.pop();
