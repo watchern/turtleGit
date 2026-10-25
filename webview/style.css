@@ -1027,9 +1027,8 @@ tr.d-del .d-text::before {
   flex-direction: column;
   height: 100%;
   min-height: 0;
-  /* 外框向左右各外扩 20px：对齐 Claude Code 的 -20px 负边距，抵消 webview 容器留白，内容通铺面板宽度 */
-  margin-left: -20px;
-  margin-right: -20px;
+  /* 外扩负边距统一加在包装层 .side-tabs/.side-pane 上（见下方「合并侧边栏」节），
+     子面板自身不再带负边距——否则会被 .side-pane 的 overflow:hidden 裁掉文字 */
 }
 
 .sc-head {
@@ -1162,17 +1161,14 @@ button.icon:hover {
   display: none;
 }
 
-/* 子面板的外框负边距（对齐 Claude Code 风格）需让出标签栏：整体向内收 */
-.side-pane .sidebar-commit {
-  margin-left: 0;
-  margin-right: 0;
-  padding: 0 10px;
-  box-sizing: border-box;
-}
-
-.side-pane .br-view {
-  padding: 0 10px;
-  box-sizing: border-box;
+/* 侧边栏整体外扩（0.3.18 同款 -10px）：标签栏与三个子面板统一左右负边距，
+   抵消 webview 默认 20px 容器留白（body{padding:0 20px}）。
+   边距必须加在包装层而非子面板上：.side-pane 自带 overflow:hidden，
+   子面板的负边距会把文字挤出裁剪区导致被切掉（0.3.19 起的历史问题）。 */
+.side-tabs,
+.side-pane {
+  margin-left: -10px;
+  margin-right: -10px;
 }
 
 /* ============ 侧边栏 Stash（暂存）标签页 ============ */
@@ -1188,7 +1184,7 @@ button.icon:hover {
   display: flex;
   align-items: center;
   gap: 6px;
-  padding: 6px 10px;
+  padding: 6px 4px;
   border-bottom: 1px solid var(--border);
   flex-wrap: wrap;
 }
@@ -1210,7 +1206,7 @@ button.icon:hover {
 }
 
 .ss-row {
-  padding: 5px 10px;
+  padding: 5px 4px;
   border-bottom: 1px solid color-mix(in srgb, var(--border) 60%, transparent);
   cursor: pointer;
 }
@@ -1223,10 +1219,10 @@ button.icon:hover {
   background: color-mix(in srgb, var(--focus) 16%, transparent);
 }
 
-/* 第一行固定两列（stash 引用 | 标题），保证所有行列位对齐、长标题省略不撑破 */
+/* 单行展示：stash 索引编号 | 提交哈希 | 消息（消息过长省略；一行放得下所有信息）。
+   索引与哈希均不用 --focus 蓝字——部分主题下 focusBorder 与背景对比度极低不可读 */
 .ss-line1 {
-  display: grid;
-  grid-template-columns: auto 1fr;
+  display: flex;
   gap: 6px;
   align-items: baseline;
   min-width: 0;
@@ -1236,10 +1232,19 @@ button.icon:hover {
   flex: none;
   font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
   font-size: 11px;
-  color: var(--focus);
+  font-weight: 600;
+  color: var(--fg);
+}
+
+.ss-commit {
+  flex: none;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 11px;
+  color: var(--muted);
 }
 
 .ss-msg {
+  flex: 1;
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -1247,31 +1252,10 @@ button.icon:hover {
   font-size: 12px;
 }
 
-.ss-line2 {
-  display: flex;
-  gap: 8px;
-  margin-top: 2px;
-  color: var(--muted);
-  font-size: 11px;
-  min-width: 0;
-}
-
-.ss-branch {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.ss-date {
-  flex: none;
-  margin-left: auto;
-  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-}
-
 /* 底部提示：查看差异请到主窗口 */
 .ss-hint {
   flex: none;
-  padding: 6px 10px;
+  padding: 6px 4px;
   font-size: 11px;
   color: var(--muted);
   text-align: center;
@@ -1461,7 +1445,8 @@ button.icon:hover {
   display: flex;
   align-items: baseline;
   gap: 6px;
-  min-width: 0;
+  flex: 1 1 auto;
+  min-width: 48px;
   font-weight: 600;
 }
 
@@ -1471,14 +1456,19 @@ button.icon:hover {
   white-space: nowrap;
 }
 
-/* 筛选框并入当前分支标题行（不再独占一行）：紧凑宽度，位于分支名与操作图标之间 */
+/* 筛选框并入当前分支标题行（不再独占一行）：紧凑宽度、可被压缩——
+   窄侧边栏时优先把空间让给当前分支名（min-width 40px 保底可辨） */
 .br-head .filter {
-  flex: none;
-  width: 84px;
-  min-width: 52px;
+  flex: 0 1 84px;
+  min-width: 40px;
   margin: 0;
   padding: 2px 6px;
   font-size: 11px;
+}
+
+/* 标题行操作图标不参与压缩，保证窄宽度下仍可点 */
+.br-head button.icon {
+  flex: none;
 }
 
 .br-head .filter::-webkit-search-cancel-button {
@@ -1694,7 +1684,8 @@ button.mini.icon svg {
   display: flex;
   align-items: baseline;
   gap: 6px;
-  min-width: 0;
+  flex: 1 1 auto;
+  min-width: 48px;
   font-weight: 600;
 }
 
@@ -1720,14 +1711,19 @@ button.mini.icon svg {
   flex: none;
 }
 
-/* 筛选框并入当前分支标题行（不再独占一行）：紧凑宽度，位于分支名与操作图标之间 */
+/* 筛选框并入当前分支标题行（不再独占一行）：紧凑宽度、可被压缩——
+   窄侧边栏时优先把空间让给当前分支名（min-width 40px 保底可辨） */
 .br-head .filter {
-  flex: none;
-  width: 84px;
-  min-width: 52px;
+  flex: 0 1 84px;
+  min-width: 40px;
   margin: 0;
   padding: 2px 6px;
   font-size: 11px;
+}
+
+/* 标题行操作图标不参与压缩，保证窄宽度下仍可点 */
+.br-head button.icon {
+  flex: none;
 }
 
 .br-head .filter::-webkit-search-cancel-button {
@@ -1796,9 +1792,9 @@ button.mini.icon svg {
   font-weight: 600;
 }
 
-.br-row.current .br-name {
-  color: var(--focus);
-}
+/* 当前分支名与其他分支保持同一颜色（继承 --fg）：早期版本用 --focus 蓝字，
+   部分主题 focusBorder 对比度极低导致名字看不见；当前态由加粗 + 绿色对勾
+   图标 + 浅色底纹区分即足够（0.3.24 用户反馈） */
 
 .br-name {
   overflow: hidden;
@@ -1903,16 +1899,10 @@ button.mini.icon {
 }
 
 /* 三个子面板的外框负边距（对齐 Claude Code 风格）需让出标签栏：整体再向内收 */
-.side-pane .sidebar-commit {
-  margin-left: 0;
-  margin-right: 0;
-  padding: 0 10px;
-  box-sizing: border-box;
-}
-
-.side-pane .br-view {
-  padding: 0 10px;
-  box-sizing: border-box;
+.side-tabs,
+.side-pane {
+  margin-left: -10px;
+  margin-right: -10px;
 }
 
 /* ============ 侧边栏 Stash（暂存）标签页 ============ */
@@ -1928,7 +1918,7 @@ button.mini.icon {
   display: flex;
   align-items: center;
   gap: 6px;
-  padding: 6px 10px;
+  padding: 6px 4px;
   border-bottom: 1px solid var(--border);
   flex-wrap: wrap;
 }
@@ -1950,7 +1940,7 @@ button.mini.icon {
 }
 
 .ss-row {
-  padding: 5px 10px;
+  padding: 5px 4px;
   border-bottom: 1px solid color-mix(in srgb, var(--border) 60%, transparent);
   cursor: pointer;
 }
@@ -1972,30 +1962,26 @@ button.mini.icon {
 
 .ss-hash {
   flex: none;
-  font-family: var(--mono);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
   font-size: 11px;
-  color: var(--accent, var(--focus));
+  font-weight: 600;
+  color: var(--fg);
+}
+
+.ss-commit {
+  flex: none;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 11px;
+  color: var(--muted);
 }
 
 .ss-msg {
+  flex: 1;
+  min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
   font-size: 12px;
-}
-
-.ss-line2 {
-  display: flex;
-  gap: 8px;
-  margin-top: 2px;
-  color: var(--muted);
-  font-size: 11px;
-}
-
-.ss-branch {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
 }
 
 .ss-acts {

@@ -62,7 +62,6 @@ export class BranchesSidebar {
 <div class="br-view">
   <div class="br-head">
     <span class="br-cur" id="br-cur">载入中…</span>
-    <span class="flex"></span>
     <input type="search" id="br-filter" class="filter" placeholder="过滤" title="按名称过滤分支">
     <button class="mini icon" id="br-pull" title="拉取（Pull）">${ICONS.pull}</button>
     <button class="mini icon" id="br-push" title="推送（Push）">${ICONS.push}</button>

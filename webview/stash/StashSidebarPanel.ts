@@ -71,8 +71,7 @@ export class StashSidebarPanel {
     this.listEl.innerHTML = this.stashes
       .map(
         (s) => `<div class="ss-row" data-ref="${this.escAttr(s.ref)}" title="点击在主窗口查看各文件改动">
-  <div class="ss-line1"><span class="ss-hash">${this.esc(s.ref)}</span><span class="ss-msg">${this.esc(s.message)}</span></div>
-  <div class="ss-line2">${s.branch ? `<span class="ss-branch">on ${this.esc(s.branch)}</span>` : ''}<span class="ss-date">${this.esc(s.commit.slice(0, 7))}</span></div>
+  <div class="ss-line1"><span class="ss-hash">${this.esc(s.ref)}</span><span class="ss-commit">${this.esc(s.commit.slice(0, 7))}</span><span class="ss-msg">${this.esc(s.message)}</span></div>
   <div class="ss-acts">
     <button class="mini" data-act="apply">应用</button>
     <button class="mini" data-act="pop">恢复</button>
