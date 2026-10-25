@@ -163,6 +163,8 @@ export interface LogQuery {
   author?: string;
   grep?: string;
   all?: boolean;
+  /** 排除合并提交（--no-merges） */
+  noMerges?: boolean;
 }
 
 export interface RpcRequests {
@@ -235,6 +237,8 @@ export interface RpcRequests {
   'ui:confirm': { req: { text: string }; res: boolean };
   'log:list': { req: LogQuery; res: CommitInfo[] };
   'log:files': { req: { repoRoot: string; hash: string }; res: CommitFile[] };
+  /** 两个引用之间（range，如 `A..B`）的变更文件列表（分支对比用） */
+  'diff:files': { req: { repoRoot: string; range: string }; res: CommitFile[] };
   'ui:openNativeDiff': { req: { repoRoot: string; path: string; staged: boolean | string }; res: void };
   /** 在 VSCode 编辑器中打开文件（非 diff） */
   'ui:openFile': { req: { repoRoot: string; path: string }; res: void };
@@ -265,6 +269,8 @@ export interface RpcRequests {
   'remote:list': { req: { repoRoot: string }; res: RemoteEntry[] };
   'remote:add': { req: { repoRoot: string; name: string; url: string }; res: void };
   'remote:remove': { req: { repoRoot: string; name: string }; res: void };
+  /** 同步远程引用（git fetch <remote>）：更新远程跟踪分支，不动工作区 */
+  'remote:fetch': { req: { repoRoot: string; remote: string }; res: string };
   'remote:setUrl': {
     req: { repoRoot: string; name: string; url: string; push?: boolean };
     res: void;

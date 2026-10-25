@@ -14,6 +14,8 @@ const ICONS = {
   addRemote: `<svg width="14" height="14" viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="8" r="6" fill="none" stroke="currentColor" stroke-width="1.5"/><path d="M2.2 8h11.6M8 2.1c2.3 2.1 2.3 9.7 0 11.8M8 2.1c-2.3 2.1-2.3 9.7 0 11.8" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/></svg>`,
   /** 当前分支：绿色对勾（IDEA Branches 风格） */
   check: `<svg width="14" height="14" viewBox="0 0 16 16" aria-hidden="true"><path d="M3 8.6l3.2 3.2L13 4.6" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg>`,
+  /** 同步远程引用（git fetch）：环形双箭头 */
+  fetch: `<svg width="14" height="14" viewBox="0 0 16 16" aria-hidden="true"><path d="M2.9 6.7a5.4 5.4 0 0 1 9.2-2" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/><path d="M12.6 1.9v2.9h-2.9" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/><path d="M13.1 9.3a5.4 5.4 0 0 1-9.2 2" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/><path d="M3.4 14.1v-2.9h2.9" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>`,
   /** 普通本地分支：分支线图标 */
   branchIco: `<svg width="14" height="14" viewBox="0 0 16 16" aria-hidden="true"><circle cx="4" cy="3.5" r="1.7" fill="none" stroke="currentColor" stroke-width="1.5"/><circle cx="4" cy="12.5" r="1.7" fill="none" stroke="currentColor" stroke-width="1.5"/><path d="M4 5.2v5.6M4 8h5.2a2.8 2.8 0 0 0 2.8-2.8V5.2" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>`,
   /** 远程分支：地球图标 */
@@ -251,6 +253,7 @@ export class BranchesSidebar {
   <div class="br-rem-main">
     <span class="br-name">${esc(r.name)}</span>
     <span class="flex"></span>
+    <button class="mini icon" data-act="fetch-remote" title="更新引用（git fetch）">${ICONS.fetch}</button>
     <button class="mini icon" data-act="edit-remote" title="修改地址">✎</button>
     <button class="mini icon" data-act="del-remote" title="删除远程仓库">✕</button>
   </div>
@@ -295,6 +298,7 @@ export class BranchesSidebar {
         const name = btn.closest<HTMLElement>('.br-rem')?.dataset.rem ?? '';
         if (act === 'add-remote') void this.addRemote();
         else if (act === 'new-branch') void this.createBranch();
+        else if (act === 'fetch-remote') void this.fetchRemote(name);
         else if (act === 'edit-remote') void this.editRemote(name);
         else if (act === 'del-remote') void this.removeRemote(name);
         else if (act === 'rename' || act === 'del') {
@@ -456,6 +460,21 @@ export class BranchesSidebar {
       () => this.client.send('remote:remove', { repoRoot: this.repoRoot, name }),
       `已删除远程 ${name}`,
     );
+  }
+
+  /** 更新远程引用（git fetch <remote>）：只同步远程跟踪分支，不动工作区 */
+  private async fetchRemote(name: string): Promise<void> {
+    if (this.busy) return;
+    this.busy = true;
+    try {
+      const text = await this.client.send('remote:fetch', { repoRoot: this.repoRoot, remote: name });
+      toast(text || `已同步 ${name} 的引用`);
+      await this.reload();
+    } catch (err) {
+      toast(`同步 ${name} 失败：${String(err)}`, true);
+    } finally {
+      this.busy = false;
+    }
   }
 
   // ---------- 拉取 / 推送 ----------

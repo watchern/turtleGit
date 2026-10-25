@@ -805,7 +805,22 @@ tr.d-del .d-text::before {
 
 /* ---------- 版本分支图 ---------- */
 .graph-pane {
-  width: 300px;
+  width: 460px;
+  /* 原生 resize 角标改为左侧专用 split-handle 拖拽（见 .split-handle） */
+  resize: none;
+}
+
+/* 可拖拽分栏把手（版本分支图：左图面板 | 右详情面板） */
+.split-handle {
+  flex: none;
+  width: 4px;
+  cursor: col-resize;
+  background: color-mix(in srgb, var(--border) 60%, transparent);
+}
+
+.split-handle:hover,
+.split-handle.dragging {
+  background: var(--focus);
 }
 
 .graph-scroll {
@@ -889,6 +904,62 @@ tr.d-del .d-text::before {
 .graph-svg .badge-remote text {
   fill: var(--fg);
   font-size: 10px;
+}
+
+/* 日志列：消息 / 作者 / 日期（SVG 文本，超出由 fitText 截断） */
+.graph-svg .g-subject {
+  fill: var(--fg);
+  font-size: 12px;
+}
+
+.graph-svg .g-author,
+.graph-svg .g-date {
+  fill: var(--muted);
+  font-size: 11px;
+}
+
+/* 搜索命中行高亮（区别于选中行的焦点色） */
+.graph-svg .row-search {
+  fill: color-mix(in srgb, var(--focus) 20%, transparent);
+}
+
+.graph-svg .gnode.hit .row-hit {
+  fill: color-mix(in srgb, var(--focus) 10%, transparent);
+}
+
+/* 消息列右边框：拖拽调宽 */
+.graph-svg .col-resize {
+  fill: transparent;
+  cursor: col-resize;
+}
+
+.graph-svg .col-resize:hover {
+  fill: color-mix(in srgb, var(--focus) 45%, transparent);
+}
+
+/* 工具栏搜索框（加宽）与匹配计数 */
+.filter.wide {
+  width: 220px;
+}
+
+.search-info {
+  font-size: 11px;
+  color: var(--muted);
+  min-width: 46px;
+  text-align: center;
+  white-space: nowrap;
+}
+
+/* 分支对比横幅（右侧详情区） */
+.compare-banner {
+  font-size: 12px;
+  line-height: 1.7;
+  color: var(--muted);
+}
+
+.compare-banner .mono {
+  font-family: var(--vscode-editor-font-family, monospace);
+  color: var(--fg);
 }
 
 .commit-detail {

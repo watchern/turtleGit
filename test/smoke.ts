@@ -2,7 +2,7 @@
  * 冒烟测试：在临时 git 仓库中验证 GitService 数据层。
  * 运行：esbuild test/smoke.ts --bundle --platform=node --format=cjs --outfile=dist-test/smoke.cjs && node dist-test/smoke.cjs
  */
-import { GitRunner, resolveGitExecutable } from '../src/host/git/GitRunner';
+import { GitRunner, resolveGitExecutable, GitRunnerError } from '../src/host/git/GitRunner';
 import { GitService } from '../src/host/git/GitService';
 import { BranchOps } from '../src/host/git/BranchOps';
 import { parseStatus, parseLog, parseCommitFiles, parseSignOffIdentity } from '../src/host/git/parsers';
@@ -604,6 +604,53 @@ async function main(): Promise<void> {
     check('中文徽标比同长度英文宽', badgeWidth('中文') > badgeWidth('ab'));
   }
 
+  console.log('== 日志列截断 / 搜索匹配 / 对比引用挑选（fitText / searchMatches / pickCompareRef） ==');
+  {
+    const { fitText, searchMatches, pickCompareRef, isHeadCommit } = await import('../webview/graph/lanes');
+    const mk = (
+      hash: string,
+      parents: string[],
+      refs: string[],
+      subject = hash,
+    ): CommitInfo => ({
+      hash,
+      shortHash: hash.slice(0, 7),
+      parents,
+      author: 't',
+      authorEmail: 't@t',
+      authorDate: '2026-01-01T00:00:00+08:00',
+      subject,
+      body: '',
+      refs,
+    });
+    // fitText：短文本原样；超宽截断补省略号；CJK 按双倍宽计
+    check('短文本不截断', fitText('fix: 小改', 200) === 'fix: 小改', fitText('fix: 小改', 200));
+    const truncated = fitText('abcdefghij', 40);
+    check('超宽文本被截断', truncated.length < 10 && truncated.endsWith('…'), truncated);
+    check('截断后宽度不超限', badgeWidth(truncated) - 12 <= 40 + 6.2, truncated);
+    check('CJK 文本更早被截断', fitText('中文中文中文', 30).length <= 4, fitText('中文中文中文', 30));
+    // searchMatches：hash/短哈希/消息/作者/引用，大小写不敏感
+    const nodes = computeLanes([
+      mk('aaaaaaa1111', ['bbbbbbb2222'], ['HEAD -> main'], 'feat: 登录'),
+      mk('bbbbbbb2222', ['ccccccc3333'], ['origin/feature'], 'fix: 构建脚本'),
+      mk('ccccccc3333', [], [], 'chore: 清理'),
+    ]);
+    check('按短哈希命中', searchMatches(nodes, 'BBBB').length === 1 && searchMatches(nodes, 'BBBB')[0] === 1, searchMatches(nodes, 'BBBB'));
+    check('按消息命中（大小写不敏感）', searchMatches(nodes, '登录').length === 1 && searchMatches(nodes, '登录')[0] === 0, searchMatches(nodes, '登录'));
+    check('按引用命中', searchMatches(nodes, 'origin/feature').length === 1 && searchMatches(nodes, 'origin/feature')[0] === 1);
+    check('空关键词无匹配', searchMatches(nodes, '   ').length === 0);
+    check('无匹配返回空', searchMatches(nodes, 'zzz-not-exist').length === 0);
+    check('可同时命中多行', searchMatches(nodes, 'e').length === 3, searchMatches(nodes, 'e'));
+    // pickCompareRef：优先本地分支 → 远程跟踪分支 → 提交号
+    check('对比引用优先本地分支', pickCompareRef(mk('h', [], ['HEAD -> main'])) === 'main', pickCompareRef(mk('h', [], ['HEAD -> main'])));
+    check('对比引用回退远程分支', pickCompareRef(mk('h', [], ['origin/feature'])) === 'origin/feature');
+    check('对比引用回退提交号', pickCompareRef(mk('h'.padEnd(40, '0'), [], ['tag: v1'])) === 'h'.padEnd(40, '0'));
+    // isHeadCommit：HEAD 自身不参与对比
+    check('HEAD -> main 判为当前提交', isHeadCommit(mk('h', [], ['HEAD -> main'])));
+    check('裸 HEAD 判为当前提交', isHeadCommit(mk('h', [], ['HEAD'])));
+    check('普通分支不是当前提交', !isHeadCommit(mk('h', [], ['main'])));
+  }
+
   console.log('== 文件目录树构建（buildFileTree / collectFiles） ==');
   {
     const { buildFileTree, collectFiles } = await import('../webview/ui/fileTree');
@@ -987,6 +1034,108 @@ async function main(): Promise<void> {
       !after.some((b) => b.isRemote && b.name === 'origin/feature'),
       after.map((b) => b.name),
     );
+
+    // fetchRemote：另一处 clone 推送新提交后，本仓库 fetch 拉回远程引用
+    const dir4 = fs.mkdtempSync(path.join(os.tmpdir(), 'turtlegit-fetch-'));
+    const work2 = path.join(dir4, 'work2');
+    const run4 = (args: string[], cwd = work2): string => {
+      const r = cp.spawnSync('git', args, { cwd, encoding: 'utf8' });
+      if (r.status !== 0) throw new Error(`git ${args.join(' ')} failed: ${r.stderr}`);
+      return r.stdout;
+    };
+    fs.mkdirSync(work2);
+    // -b main：裸仓库 HEAD 指向不存在的 master（init 默认分支），裸 clone 会检不出分支
+    run4(['clone', '-q', '-b', 'main', bare, work2], dir4);
+    run4(['config', 'user.email', 'test@example.com']);
+    run4(['config', 'user.name', '测试用户']);
+    fs.writeFileSync(path.join(work2, 'f.txt'), 'v3\n', 'utf8');
+    run4(['add', '-A']);
+    run4(['commit', '-qm', 'upstream change']);
+    run4(['push', '-q', 'origin', 'main']);
+
+    const before = run3(['rev-parse', 'origin/main'], work).trim();
+    const upstream = run4(['rev-parse', 'HEAD'], work2).trim();
+    check('fetch 前本地 origin/main 落后', before !== upstream, { before, upstream });
+    const fetchRes = await ops.fetchRemote(work, 'origin');
+    check('fetchRemote 返回码为 0', fetchRes.code === 0, fetchRes.code);
+    const afterFetch = run3(['rev-parse', 'origin/main'], work).trim();
+    check('fetchRemote 后 origin/main 更新', afterFetch === upstream, { afterFetch, upstream });
+    check('fetchRemote 不动工作区', run3(['rev-parse', 'HEAD'], work).trim() !== upstream, '工作区应保持旧提交');
+
+    let emptyErr: unknown;
+    try {
+      await ops.fetchRemote(work, '');
+    } catch (err) {
+      emptyErr = err;
+    }
+    check('fetchRemote 空远程名抛错', emptyErr instanceof Error && /未指定远程仓库名称/.test(emptyErr.message), emptyErr);
+
+    let missErr: unknown;
+    try {
+      await ops.fetchRemote(work, 'no-such-remote');
+    } catch (err) {
+      missErr = err;
+    }
+    check('fetchRemote 不存在的远程抛 GitRunnerError', missErr instanceof GitRunnerError, missErr);
+    fs.rmSync(dir4, { recursive: true, force: true });
+  }
+
+  console.log('== rangeFiles：分支区间变更文件（真实仓库） ==');
+  {
+    const dir5 = fs.mkdtempSync(path.join(os.tmpdir(), 'turtlegit-rangefiles-'));
+    const bare = path.join(dir5, 'bare.git');
+    const work = path.join(dir5, 'work');
+    fs.mkdirSync(work);
+    const run5 = (args: string[], cwd = work): string => {
+      const r = cp.spawnSync('git', args, { cwd, encoding: 'utf8' });
+      if (r.status !== 0) throw new Error(`git ${args.join(' ')} failed: ${r.stderr}`);
+      return r.stdout;
+    };
+    run5(['init', '-q', '--bare', bare], dir5);
+    run5(['init', '-q', '-b', 'main']);
+    run5(['config', 'user.email', 'test@example.com']);
+    run5(['config', 'user.name', '测试用户']);
+    fs.writeFileSync(path.join(work, 'base.txt'), 'base\n', 'utf8');
+    fs.writeFileSync(path.join(work, 'mod.txt'), 'v1\n', 'utf8');
+    run5(['add', '-A']);
+    run5(['commit', '-qm', 'init']);
+    run5(['remote', 'add', 'origin', bare]);
+    run5(['push', '-q', '-u', 'origin', 'main']);
+
+    run5(['checkout', '-q', '-b', 'feature']);
+    fs.writeFileSync(path.join(work, 'mod.txt'), 'v1\nv2\nv3\n', 'utf8');
+    fs.writeFileSync(path.join(work, 'added.txt'), 'new file\n', 'utf8');
+    run5(['add', '-A']);
+    run5(['commit', '-qm', 'feature change']);
+    run5(['checkout', '-q', 'main']);
+
+    const files = await git.rangeFiles(work, 'main..feature');
+    const byPath = new Map(files.map((f) => [f.path, f]));
+    check('rangeFiles 覆盖两个变更文件', files.length === 2, files.map((f) => f.path));
+    check('修改文件状态为 M 且统计正确', byPath.get('mod.txt')?.status === 'M' && byPath.get('mod.txt')?.additions === 2 && byPath.get('mod.txt')?.deletions === 0, byPath.get('mod.txt'));
+    check('新增文件状态为 A', byPath.get('added.txt')?.status === 'A' && byPath.get('added.txt')?.additions === 1, byPath.get('added.txt'));
+    check('未变更文件不出现', !byPath.has('base.txt'), [...byPath.keys()]);
+
+    // 反向区间：新增文件变成删除，修改文件的增删互换
+    const rev = await git.rangeFiles(work, 'feature..main');
+    const revByPath = new Map(rev.map((f) => [f.path, f]));
+    check('反向区间新增文件变删除', revByPath.get('added.txt')?.status === 'D', revByPath.get('added.txt'));
+    check('反向区间增删互换', revByPath.get('mod.txt')?.status === 'M' && revByPath.get('mod.txt')?.additions === 0 && revByPath.get('mod.txt')?.deletions === 2, revByPath.get('mod.txt'));
+
+    // 相同引用区间无变更
+    const same = await git.rangeFiles(work, 'main..main');
+    check('相同引用区间无变更文件', same.length === 0, same);
+
+    // 非法区间抛错（GitRunner.out 非零退出）
+    let rangeErr: unknown;
+    try {
+      await git.rangeFiles(work, 'main..not-exist');
+    } catch (err) {
+      rangeErr = err;
+    }
+    check('rangeFiles 非法区间抛错', rangeErr instanceof Error, rangeErr);
+
+    fs.rmSync(dir5, { recursive: true, force: true });
   }
 
   if (failures > 0) {

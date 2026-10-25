@@ -627,6 +627,9 @@ export class PanelManager {
       this.git.fileLineCounts(repoRoot, p, { staged, against, range }),
     );
 
+    // 两个引用之间（range）的变更文件列表（分支对比：「与当前分支对比」）
+    this.router.register('diff:files', ({ repoRoot, range }) => this.git.rangeFiles(repoRoot, range));
+
     this.router.register('ui:confirm', async ({ text }) => {
       const answer = await vscode.window.showWarningMessage(text, { modal: true }, '确定');
       return answer === '确定';
@@ -708,6 +711,14 @@ export class PanelManager {
         this.ops.setRemoteUrl(repoRoot, name, url, push === true),
       );
       await this.store.touch(repoRoot);
+    });
+    this.router.register('remote:fetch', async ({ repoRoot, remote }) => {
+      const r = await this.withNotify(`正在同步 ${remote} 的引用…`, () =>
+        this.ops.fetchRemote(repoRoot, remote),
+      );
+      await this.store.touch(repoRoot);
+      // fetch 的输出（含 stderr 进度行）汇总为可读摘要；无输出即已最新
+      return summarizeGitOutput(`${r.stdout}\n${r.stderr}`) || `${remote} 已是最新`;
     });
 
     this.router.register('tag:list', ({ repoRoot }) => this.ops.tags(repoRoot));
@@ -933,6 +944,43 @@ export class PanelManager {
             const left = this.blobUriFor(abs, `${p['hash']}^`, repoRoot);
             // stash@{n} 等选择器含 @{}，截 7 位会得到 "stash@{"——原样显示
             const label = /[@{}]/.test(p['hash']) ? p['hash'] : p['hash'].slice(0, 7);
+            await vscode.commands.executeCommand(
+              'vscode.diff',
+              left,
+              right,
+              `${p['path']} (${label})`,
+              { preview: true },
+            );
+          });
+        }
+        break;
+      }
+      case 'openRangeDiff': {
+        // 任意两个引用间对比（分支「与当前分支对比」）：left/right 为 ref，缺侧直接打开存在侧
+        const repoRoot = repoOf();
+        if (repoRoot && p['path'] && p['left'] && p['right']) {
+          await this.openNativeEditor(view, async () => {
+            const abs = absPathIn(repoRoot, p['path']);
+            const rel = relPathIn(repoRoot, abs);
+            const exists = async (ref: string): Promise<boolean> =>
+              (await this.runner.tryRun(['cat-file', '-e', `${ref}:${rel}`], {
+                cwd: repoRoot,
+                timeoutMs: 8000,
+              })) !== null;
+            const [hasLeft, hasRight] = [await exists(p['left']), await exists(p['right'])];
+            const right = this.blobUriFor(abs, p['right'], repoRoot);
+            const label = p['label'] ?? `${p['left']} ↔ ${p['right']}`;
+            if (!hasLeft) {
+              // 左侧无此文件（对比范围内为新增）：直接打开右侧内容
+              await vscode.commands.executeCommand('vscode.open', right, { preview: true });
+              return;
+            }
+            const left = this.blobUriFor(abs, p['left'], repoRoot);
+            if (!hasRight) {
+              // 右侧无此文件（对比范围内已删除）：打开左侧内容
+              await vscode.commands.executeCommand('vscode.open', left, { preview: true });
+              return;
+            }
             await vscode.commands.executeCommand(
               'vscode.diff',
               left,

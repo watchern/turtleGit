@@ -420,6 +420,7 @@ export class GitService {
     if (query.all) args.push('--all');
     if (query.author) args.push(`--author=${query.author}`);
     if (query.grep) args.push(`--grep=${query.grep}`, '-i');
+    if (query.noMerges) args.push('--no-merges');
     if (query.path) args.push('--', query.path);
     const out = await this.runner.out(args, {
       cwd: query.repoRoot,
@@ -451,6 +452,34 @@ export class GitService {
           isBinary: m[1] === '-',
         });
       }
+    }
+    return parseCommitFiles(nameStatusOut, numstat);
+  }
+
+  /**
+   * 两个引用之间（range，如 `A..B`）的变更文件列表（分支对比：「与当前分支对比」）。
+   * 与 commitFiles 同构：--numstat 与 --name-status -z 分两次调用再合并。
+   */
+  async rangeFiles(repoRoot: string, range: string): Promise<CommitFile[]> {
+    const [nameStatusOut, numstatOut] = await Promise.all([
+      this.runner.out(['diff', '--name-status', '-z', range], {
+        cwd: repoRoot,
+        timeoutMs: 30000,
+      }),
+      this.runner.out(['diff', '--numstat', range], {
+        cwd: repoRoot,
+        timeoutMs: 30000,
+      }),
+    ]);
+    const numstat = new Map<string, { additions: number; deletions: number; isBinary: boolean }>();
+    for (const line of numstatOut.split(/\r?\n/)) {
+      const m = /^(\d+|-)\t(\d+|-)\t(.+)$/.exec(line.trim());
+      if (!m) continue;
+      numstat.set(m[3].replace(/^"|"$/g, ''), {
+        additions: m[1] === '-' ? 0 : Number(m[1]),
+        deletions: m[2] === '-' ? 0 : Number(m[2]),
+        isBinary: m[1] === '-',
+      });
     }
     return parseCommitFiles(nameStatusOut, numstat);
   }

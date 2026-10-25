@@ -259,6 +259,25 @@ export class BranchOps {
     await this.assertOk(args, repoRoot, '修改远程地址失败');
   }
 
+  /**
+   * 同步远程引用（git fetch <remote>）：只更新远程跟踪分支，不动工作区与当前分支。
+   * fetch 的进度/摘要信息主要在 stderr，成功时也可能有输出（如 "-> origin/main"）。
+   */
+  async fetchRemote(repoRoot: string, remote: string): Promise<GitRunResult> {
+    if (!remote) throw new Error('未指定远程仓库名称');
+    const r = await this.runner.run(['fetch', remote, '--progress'], {
+      cwd: repoRoot,
+      timeoutMs: BranchOps.NET_TIMEOUT,
+    });
+    if (r.code !== 0) {
+      throw new GitRunnerError(
+        this.cleanOutput(`${r.stdout}\n${r.stderr}`) || `git fetch ${remote} 失败`,
+        r,
+      );
+    }
+    return r;
+  }
+
   // ---------- 标签 ----------
 
   async tags(repoRoot: string): Promise<TagEntry[]> {

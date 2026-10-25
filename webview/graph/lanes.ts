@@ -76,6 +76,74 @@ export function badgeWidth(text: string): number {
   return units * 6.2 + 12;
 }
 
+/** 估算文本渲染宽度（CJK 按 2 个单位宽）——SVG 文本列对齐/截断用 */
+export function textWidth(text: string, unit = 6.2): number {
+  let units = 0;
+  for (const ch of text) {
+    units += /[\u3000-\u9fff\uff00-\uffef]/.test(ch) ? 2 : 1;
+  }
+  return units * unit;
+}
+
+/** SVG <text> 无原生 ellipsis：超过 maxW 时按宽度截断并补省略号 */
+export function fitText(text: string, maxW: number, unit = 6.2): string {
+  if (textWidth(text, unit) <= maxW) return text;
+  const ellipsis = '…';
+  let w = textWidth(ellipsis, unit);
+  let out = '';
+  for (const ch of text) {
+    const cw = /[\u3000-\u9fff\uff00-\uffef]/.test(ch) ? unit * 2 : unit;
+    if (w + cw > maxW) break;
+    w += cw;
+    out += ch;
+  }
+  return out + ellipsis;
+}
+
+/**
+ * 搜索匹配行号：hash / 短哈希 / 消息 / 作者 / 引用 任一包含关键词（大小写不敏感）。
+ * 返回命中的行索引数组（按行序），空关键词返回空数组。
+ */
+export function searchMatches(nodes: GraphNode[], query: string): number[] {
+  const q = query.trim().toLowerCase();
+  if (!q) return [];
+  const hits: number[] = [];
+  nodes.forEach((n, i) => {
+    const c = n.commit;
+    if (
+      c.hash.toLowerCase().includes(q) ||
+      c.shortHash.toLowerCase().includes(q) ||
+      c.subject.toLowerCase().includes(q) ||
+      c.author.toLowerCase().includes(q) ||
+      c.refs.some((r) => r.toLowerCase().includes(q))
+    ) {
+      hits.push(i);
+    }
+  });
+  return hits;
+}
+
+/** 是否为当前 HEAD 所在提交（HEAD 自身不参与「与当前分支对比」） */
+export function isHeadCommit(commit: CommitInfo): boolean {
+  return commit.refs.some((r) => r === 'HEAD' || r.startsWith('HEAD ->'));
+}
+
+/**
+ * 挑选「与当前分支对比」用的引用：优先本地分支名，其次远程跟踪分支，
+ * 都没有（游离提交/仅标签）时退回提交号（40 位 hash 也是合法 ref）。
+ * 注意 `%D` 里 `HEAD -> main` 是一个完整条目，箭头后才是真正的分支名。
+ */
+export function pickCompareRef(commit: CommitInfo): string {
+  const headBranch = commit.refs.find((r) => r.startsWith('HEAD -> '));
+  if (headBranch) return headBranch.slice('HEAD -> '.length).trim();
+  const badges = refBadges(commit.refs);
+  const local = badges.find((b) => b.kind === 'branch');
+  if (local) return local.text;
+  const remote = badges.find((b) => b.kind === 'remote');
+  if (remote) return remote.text;
+  return commit.hash;
+}
+
 export function computeLanes(commits: CommitInfo[]): GraphNode[] {
   /** lanes[i] = 该 lane 正在等待的 commit hash，null 表示空闲 */
   const lanes: (string | null)[] = [];
