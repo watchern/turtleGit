@@ -14,11 +14,12 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      # pnpm-workspace.yaml 用的是 pnpm 11 的 allowBuilds 字段（esbuild/vsce-sign 构建脚本审批），
-      # 必须与本机 pnpm 11.x 保持一致——旧版 pnpm 不认识该字段且强制要求 packages 字段会直接报错
+      # pnpm 版本由 package.json 的 packageManager 字段决定（pnpm@11.24.0，与本机一致）。
+      # 不要再在这里写 version: —— action-setup 同时见到 version 与 packageManager 会直接报错退出。
+      # 用 pnpm 11 的原因：pnpm-workspace.yaml 用的是 pnpm 11 的 allowBuilds 字段
+      # （审批 esbuild / @vscode/vsce-sign 的构建脚本），旧版 pnpm 不认识该字段且强制要求
+      # packages 字段，会在 pnpm store path 处报 packages field missing or empty。
       - uses: pnpm/action-setup@v4
-        with:
-          version: 11
 
       # vsce 4.x 要求 Node >= 22
       - uses: actions/setup-node@v4
