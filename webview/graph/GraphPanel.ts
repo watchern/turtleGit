@@ -5,38 +5,38 @@ import { toast, promptValue, showMenuAt, escapeHtml } from '../ui/dialogs';
 import { loadState, saveState } from '../state';
 import {
   computeLanes,
-  refBadges,
   buildEdges,
   laneColor,
-  badgeWidth,
-  fitText,
   searchMatches,
   pickCompareRef,
   isHeadCommit,
+  branchChips,
   GraphNode,
 } from './lanes';
-import { CommitFile, CommitInfo } from '../../shared/protocol';
+import { BranchEntry, CommitFile, CommitInfo } from '../../shared/protocol';
 
 const ROW_H = 26;
 const COL_W = 18;
 const NODE_R = 5;
-/** hash 文本列（等宽 11px，shortHash 7 字符） */
+/** hash 文本列（等宽 11px，shortHash 7 字符）——表头与行共用 */
 const HASH_W = 50;
-/** 作者列 / 日期列宽 */
-const AUTHOR_W = 96;
-const DATE_W = 84;
-/** 列间距 */
-const COL_GAP = 8;
+/** 作者 / 日期列默认宽（与 Intellig log 表一致） */
+const AUTHOR_W = 120;
+const DATE_W = 145;
+/** 列宽拖拽范围（Intellig：40–600） */
+const MIN_COL_W = 40;
+const MAX_COL_W = 600;
+/** 键盘调列宽步长 */
+const COL_KEY_STEP = 10;
 const MIN_PANE_W = 240;
-const MIN_SUBJECT_W = 80;
-const MAX_SUBJECT_W = 600;
 
-/** 面板布局（左图面板宽 + 消息列宽），跨 webview 重载保持 */
+/** 面板布局（左图面板宽 + 作者/日期列宽），跨 webview 重载保持 */
 interface GraphLayout {
   paneW: number;
-  subjectW: number;
+  authorW: number;
+  dateW: number;
 }
-const DEFAULT_LAYOUT: GraphLayout = { paneW: 460, subjectW: 200 };
+const DEFAULT_LAYOUT: GraphLayout = { paneW: 460, authorW: AUTHOR_W, dateW: DATE_W };
 
 /** 「与当前分支对比」状态 */
 interface CompareState {
@@ -47,6 +47,15 @@ interface CompareState {
   /** diff range：HEAD..ref */
   range: string;
 }
+
+/** 行内分支/标签芯片的小图标（head/分支/远程/标签） */
+const CHIP_ICONS: Record<'head' | 'branch' | 'remote' | 'tag', string> = {
+  head: '<circle cx="4.5" cy="3.6" r="1.7" fill="currentColor"/><circle cx="4.5" cy="12.4" r="1.7" fill="currentColor"/><circle cx="11.5" cy="6" r="1.7" fill="currentColor"/><path d="M4.5 5.3v5.4M11.5 7.7c0 2.7-2.4 4.6-5.6 4.6" fill="none" stroke="currentColor" stroke-width="1.4"/>',
+  branch: '<circle cx="4.5" cy="3.6" r="1.7" fill="currentColor"/><circle cx="4.5" cy="12.4" r="1.7" fill="currentColor"/><circle cx="11.5" cy="6" r="1.7" fill="currentColor"/><path d="M4.5 5.3v5.4M11.5 7.7c0 2.7-2.4 4.6-5.6 4.6" fill="none" stroke="currentColor" stroke-width="1.4"/>',
+  remote:
+    '<circle cx="8" cy="8" r="5.7" fill="none" stroke="currentColor" stroke-width="1.3"/><path d="M2.3 8h11.4M8 2.3c2.3 2.1 3.5 3.7 3.5 5.7s-1.2 3.6-3.5 5.7c-2.3-2.1-3.5-3.7-3.5-5.7S5.7 4.4 8 2.3z" fill="none" stroke="currentColor" stroke-width="1.3"/>',
+  tag: '<path d="M2.5 8.3V3h5.3L14 9.3l-4.7 4.7z" fill="none" stroke="currentColor" stroke-width="1.3"/><circle cx="5.7" cy="5.7" r="1.1" fill="currentColor"/>',
+};
 
 /** 日期列格式：本年 `MM-dd HH:mm`，往年补年份 */
 function fmtDate(iso: string): string {
@@ -59,10 +68,19 @@ function fmtDate(iso: string): string {
     : `${d.getFullYear()}-${md}`;
 }
 
+/** 日期预设（与 Intellig log 的 datePreset 对齐） */
+const DATE_PRESETS: Array<{ label: string; value: string | undefined }> = [
+  { label: '全部时间', value: undefined },
+  { label: '最近 24 小时', value: '24h' },
+  { label: '最近 7 天', value: '7d' },
+];
+
 /**
- * 版本分支图：复刻 TortoiseGit Revision Graph + Intellig Git Log 的交互。
- * 左侧 SVG 图（lane + 节点 + refs 徽标 + 消息/作者/日期列），右侧提交详情与变更文件。
- * 支持：搜索跳转（Ctrl+F）、作者/关键字/路径/合并提交筛选、面板与消息列拖拽调宽、
+ * 版本分支图：复刻 TortoiseGit Revision Graph + Intellig Git Log 左侧分栏。
+ * 左栏自上而下：筛选行（搜索 + 分支/作者/日期弹出筛选 + 路径/关键字）→
+ *  sticky 表头（图沟槽 | 提交 | 消息 | 作者 | 日期，作者/日期列宽可拖拽）→
+ *  滚动区（SVG 只画 lane/连线/节点，HTML 行承载文本与行内分支芯片，head 芯片最左）。
+ * 右侧为提交详情 / 变更文件 / 差异；支持搜索跳转（Ctrl+F）、面板拖拽分栏、
  * 分支「与当前分支对比」。
  */
 export class GraphPanel {
@@ -73,8 +91,14 @@ export class GraphPanel {
   private selectedHash: string | undefined;
   private skip = 0;
   private readonly pageSize = 200;
-  private showAll = true;
   private noMerges = false;
+
+  // 筛选（弹出式：分支 / 作者 / 日期）
+  private branchFilter: string | undefined;
+  private authorFilter: string | undefined;
+  private since: string | undefined;
+  /** 分支弹出列表数据（branch:list，reload 时刷新） */
+  private branchInfos: BranchEntry[] = [];
 
   // 搜索（跳转型：滚动 + 高亮，不改右侧详情）
   private search = '';
@@ -86,10 +110,13 @@ export class GraphPanel {
 
   // 布局（持久化）
   private paneW = DEFAULT_LAYOUT.paneW;
-  private subjectW = DEFAULT_LAYOUT.subjectW;
+  private authorW = DEFAULT_LAYOUT.authorW;
+  private dateW = DEFAULT_LAYOUT.dateW;
 
   private el: HTMLElement;
   private graphEl!: HTMLElement;
+  private graphSvgEl!: HTMLElement;
+  private rowsEl!: HTMLElement;
   private detailEl!: HTMLElement;
   private filesEl!: HTMLElement;
   private diffEl!: HTMLElement;
@@ -108,27 +135,68 @@ export class GraphPanel {
   private build(): void {
     const saved = loadState<Partial<GraphLayout>>();
     this.paneW = saved?.paneW && saved.paneW >= MIN_PANE_W ? saved.paneW : DEFAULT_LAYOUT.paneW;
-    this.subjectW =
-      saved?.subjectW && saved.subjectW >= MIN_SUBJECT_W ? saved.subjectW : DEFAULT_LAYOUT.subjectW;
+    this.authorW = this.clampCol(saved?.authorW, AUTHOR_W);
+    this.dateW = this.clampCol(saved?.dateW, DATE_W);
     this.el.innerHTML = `
 <div class="toolbar">
   <button id="btn-refresh" title="刷新 (F5)">刷新</button>
-  <label class="chk"><input type="checkbox" id="chk-all" checked> 所有分支</label>
-  <label class="chk"><input type="checkbox" id="chk-nomerge"> 排除合并</label>
-  <input type="search" id="flt-author" class="filter" placeholder="作者">
-  <input type="search" id="flt-grep" class="filter" placeholder="信息关键字">
-  <input type="search" id="flt-path" class="filter" placeholder="路径">
   <span class="flex"></span>
-  <input type="search" id="flt-search" class="filter wide" placeholder="搜索 哈希/消息/作者/引用" title="搜索（Ctrl+F 聚焦，回车下一个，Shift+回车上一个）">
-  <span class="search-info" id="search-info"></span>
-  <button class="mini icon" id="btn-search-prev" title="上一个匹配 (Shift+Enter)">↑</button>
-  <button class="mini icon" id="btn-search-next" title="下一个匹配 (Enter)">↓</button>
   <span class="page-info" id="page-info"></span>
   <button id="btn-more" class="mini" title="加载更多">加载更多</button>
 </div>
 <div class="split" id="split">
-  <section class="pane left graph-pane" id="graph-pane" style="width:${this.paneW}px">
-    <div class="graph-scroll" id="graph-scroll"><div class="graph-svg-host" id="graph-svg"></div></div>
+  <section class="pane left graph-pane" id="graph-pane" style="width:${this.paneW}px; --col-author-width:${this.authorW}px; --col-date-width:${this.dateW}px; --graph-w:60px">
+    <div class="log-filter-row">
+      <div class="log-filter-search">
+        <input type="search" id="flt-search" class="log-filter-search-input" placeholder="搜索 哈希/消息/作者/引用" title="搜索（Ctrl+F 聚焦，回车下一个，Shift+回车上一个）">
+        <span class="search-info" id="search-info"></span>
+        <button class="mini icon" id="btn-search-prev" title="上一个匹配 (Shift+Enter)">↑</button>
+        <button class="mini icon" id="btn-search-next" title="下一个匹配 (Enter)">↓</button>
+      </div>
+      <div class="log-filter-pop" id="pop-branch-wrap">
+        <button type="button" class="log-filter-pop-btn" id="pop-branch-btn" aria-haspopup="true" aria-expanded="false" title="按分支筛选">
+          <span class="log-filter-pop-label">分支:</span>
+          <span class="log-filter-pop-value" id="pop-branch-value">所有分支</span>
+          <span class="log-filter-pop-caret">▾</span>
+        </button>
+        <div class="log-filter-popup" id="pop-branch" hidden></div>
+      </div>
+      <div class="log-filter-pop" id="pop-author-wrap">
+        <button type="button" class="log-filter-pop-btn" id="pop-author-btn" aria-haspopup="true" aria-expanded="false" title="按作者筛选">
+          <span class="log-filter-pop-label">作者:</span>
+          <span class="log-filter-pop-value" id="pop-author-value">所有用户</span>
+          <span class="log-filter-pop-caret">▾</span>
+        </button>
+        <div class="log-filter-popup" id="pop-author" hidden></div>
+      </div>
+      <div class="log-filter-pop" id="pop-date-wrap">
+        <button type="button" class="log-filter-pop-btn" id="pop-date-btn" aria-haspopup="true" aria-expanded="false" title="按时间筛选">
+          <span class="log-filter-pop-label">日期:</span>
+          <span class="log-filter-pop-value" id="pop-date-value">全部时间</span>
+          <span class="log-filter-pop-caret">▾</span>
+        </button>
+        <div class="log-filter-popup" id="pop-date" hidden></div>
+      </div>
+      <input type="search" id="flt-path" class="filter" placeholder="路径">
+      <input type="search" id="flt-grep" class="filter" placeholder="信息关键字">
+      <label class="chk"><input type="checkbox" id="chk-nomerge"> 排除合并</label>
+    </div>
+    <div class="log-column-header">
+      <div class="log-column-header-info">
+        <div class="log-column-header-hash">提交</div>
+        <div class="log-column-header-title">消息</div>
+        <div class="log-column-resize-handle" data-column-resize="author" role="separator" aria-label="调整作者列宽" tabindex="0" title="拖拽或方向键（±10px）调整作者列宽"></div>
+        <div class="log-column-header-author">作者</div>
+        <div class="log-column-resize-handle" data-column-resize="date" role="separator" aria-label="调整日期列宽" tabindex="0" title="拖拽或方向键（±10px）调整日期列宽"></div>
+        <div class="log-column-header-date">日期</div>
+      </div>
+    </div>
+    <div class="graph-scroll" id="graph-scroll">
+      <div class="gp-canvas" id="gp-canvas">
+        <div class="gp-graph" id="gp-graph"></div>
+        <div class="gp-rows" id="gp-rows"></div>
+      </div>
+    </div>
   </section>
   <div class="split-handle" id="split-handle" title="拖拽调整面板宽度"></div>
   <section class="pane right">
@@ -150,7 +218,9 @@ export class GraphPanel {
 </div>
 <div class="ctx-menu" id="ctx-menu" hidden></div>
 `;
-    this.graphEl = this.must('graph-svg');
+    this.graphEl = this.must('graph-pane');
+    this.graphSvgEl = this.must('gp-graph');
+    this.rowsEl = this.must('gp-rows');
     this.detailEl = this.must('commit-detail');
     this.filesEl = this.must('file-list');
     this.diffEl = this.must('diff-view');
@@ -160,17 +230,12 @@ export class GraphPanel {
       this.skip = 0;
       void this.reload();
     });
-    (this.must('chk-all') as HTMLInputElement).addEventListener('change', (e) => {
-      this.showAll = (e.target as HTMLInputElement).checked;
-      this.skip = 0;
-      void this.reload();
-    });
     (this.must('chk-nomerge') as HTMLInputElement).addEventListener('change', (e) => {
       this.noMerges = (e.target as HTMLInputElement).checked;
       this.skip = 0;
       void this.reload();
     });
-    for (const id of ['flt-grep', 'flt-author', 'flt-path']) {
+    for (const id of ['flt-grep', 'flt-path']) {
       this.must(id).addEventListener('change', () => {
         this.skip = 0;
         void this.reload();
@@ -182,6 +247,8 @@ export class GraphPanel {
     });
     this.bindSearch();
     this.bindSplitter();
+    this.bindColumnResize();
+    this.bindPopups();
     this.must('btn-exit-compare').addEventListener('click', () => this.exitCompare());
     this.must('btn-open-editor').addEventListener('click', () => {
       const file = this.currentFile;
@@ -205,6 +272,7 @@ export class GraphPanel {
         this.skip = 0;
         void this.reload();
       }
+      if (e.key === 'Escape') this.closeAllPopups();
       // Ctrl/Cmd+F 聚焦搜索框（对齐 Intellig 的 jumpToHash 快捷键）
       if ((e.ctrlKey || e.metaKey) && (e.key === 'f' || e.key === 'F')) {
         e.preventDefault();
@@ -219,6 +287,11 @@ export class GraphPanel {
     const el = document.getElementById(id);
     if (!el) throw new Error('missing element: ' + id);
     return el;
+  }
+
+  private clampCol(w: number | undefined, fallback: number): number {
+    if (typeof w !== 'number' || !Number.isFinite(w)) return fallback;
+    return Math.max(MIN_COL_W, Math.min(MAX_COL_W, Math.round(w)));
   }
 
   // ---------- 搜索（跳转） ----------
@@ -266,7 +339,111 @@ export class GraphPanel {
     el.textContent = this.matchRows.length ? `${this.searchPos + 1}/${this.matchRows.length}` : '无匹配';
   }
 
-  // ---------- 可拖拽分栏 ----------
+  // ---------- 弹出式筛选（分支 / 作者 / 日期） ----------
+
+  private bindPopups(): void {
+    const wraps = ['pop-branch-wrap', 'pop-author-wrap', 'pop-date-wrap'];
+    for (const id of wraps) {
+      const wrap = this.must(id);
+      const btn = wrap.querySelector('.log-filter-pop-btn');
+      const pop = wrap.querySelector('.log-filter-popup') as HTMLElement;
+      btn?.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const willOpen = pop.hidden;
+        this.closeAllPopups();
+        pop.hidden = !willOpen;
+        btn.setAttribute('aria-expanded', String(willOpen));
+      });
+      // 弹窗内点击不冒泡到 document（否则立即被关掉）
+      pop.addEventListener('click', (e) => e.stopPropagation());
+    }
+    document.addEventListener('click', () => this.closeAllPopups());
+  }
+
+  private closeAllPopups(): void {
+    for (const id of ['pop-branch-wrap', 'pop-author-wrap', 'pop-date-wrap']) {
+      const wrap = this.must(id);
+      const pop = wrap.querySelector('.log-filter-popup') as HTMLElement;
+      const btn = wrap.querySelector('.log-filter-pop-btn');
+      pop.hidden = true;
+      btn?.setAttribute('aria-expanded', 'false');
+    }
+  }
+
+  /** 重建三个弹窗的内容（reload 后调用：分支/作者列表随数据变化） */
+  private renderPopups(): void {
+    // 分支：所有分支（清空筛选）+ 本地/远程分组（branch:list 全量数据）
+    const locals = this.branchInfos.filter((b) => !b.isRemote);
+    const remotes = this.branchInfos.filter((b) => b.isRemote);
+    const branchItems: string[] = [
+      this.popupItem('所有分支', '', !this.branchFilter, '显示所有分支的提交'),
+    ];
+    if (locals.length) {
+      branchItems.push('<div class="log-filter-popup-section">本地分支</div>');
+      for (const b of locals) {
+        branchItems.push(this.popupItem(b.shortName || b.name, b.name, this.branchFilter === b.name, b.name));
+      }
+    }
+    if (remotes.length) {
+      branchItems.push('<div class="log-filter-popup-section">远程分支</div>');
+      for (const b of remotes) {
+        branchItems.push(this.popupItem(b.name, b.name, this.branchFilter === b.name, b.name));
+      }
+    }
+    this.fillPopup('pop-branch', branchItems, (value) => {
+      this.branchFilter = value || undefined;
+      this.must('pop-branch-value').textContent = value || '所有分支';
+      this.skip = 0;
+      void this.reload();
+    });
+
+    // 作者：当前已加载提交里去重（Intellig 的 user 过滤器同理）
+    const authors: string[] = [];
+    for (const n of this.nodes) {
+      const a = n.commit.author;
+      if (a && !authors.includes(a)) authors.push(a);
+    }
+    authors.sort((a, b) => a.localeCompare(b, 'zh-Hans-CN'));
+    const authorItems: string[] = [this.popupItem('所有用户', '', !this.authorFilter, '显示所有作者的提交')];
+    for (const a of authors) {
+      authorItems.push(this.popupItem(a, a, this.authorFilter === a, a));
+    }
+    this.fillPopup('pop-author', authorItems, (value) => {
+      this.authorFilter = value || undefined;
+      this.must('pop-author-value').textContent = value || '所有用户';
+      this.skip = 0;
+      void this.reload();
+    });
+
+    // 日期：静态预设
+    const dateItems = DATE_PRESETS.map((p) =>
+      this.popupItem(p.label, p.value ?? '', this.since === p.value, p.label),
+    );
+    this.fillPopup('pop-date', dateItems, (value) => {
+      this.since = value || undefined;
+      const preset = DATE_PRESETS.find((p) => (p.value ?? '') === value);
+      this.must('pop-date-value').textContent = preset?.label ?? '全部时间';
+      this.skip = 0;
+      void this.reload();
+    });
+  }
+
+  private popupItem(label: string, value: string, active: boolean, title: string): string {
+    return `<button type="button" class="log-filter-popup-item${active ? ' active' : ''}" data-value="${this.escAttr(value)}" title="${this.escAttr(title)}"><span class="log-filter-tree-check">${active ? '✓' : ''}</span>${this.esc(label)}</button>`;
+  }
+
+  private fillPopup(id: string, items: string[], onPick: (value: string) => void): void {
+    const pop = this.must(id);
+    pop.innerHTML = items.join('');
+    pop.querySelectorAll<HTMLElement>('.log-filter-popup-item').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        this.closeAllPopups();
+        onPick(btn.dataset.value ?? '');
+      });
+    });
+  }
+
+  // ---------- 可拖拽分栏（左图面板 | 右详情面板） ----------
 
   private bindSplitter(): void {
     const handle = this.must('split-handle');
@@ -279,7 +456,6 @@ export class GraphPanel {
       const onMove = (ev: MouseEvent): void => {
         this.paneW = Math.max(MIN_PANE_W, Math.min(maxW, startW + ev.clientX - startX));
         pane.style.width = `${this.paneW}px`;
-        this.renderGraph();
       };
       const onUp = (): void => {
         document.removeEventListener('mousemove', onMove);
@@ -293,22 +469,78 @@ export class GraphPanel {
     });
   }
 
+  // ---------- 表头列宽调整（作者 / 日期） ----------
+
+  private bindColumnResize(): void {
+    this.graphEl.querySelectorAll<HTMLElement>('.log-column-resize-handle').forEach((h) => {
+      const which = h.dataset.columnResize === 'date' ? 'date' : 'author';
+      const varName = which === 'author' ? '--col-author-width' : '--col-date-width';
+      h.addEventListener('mousedown', (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        const startX = e.clientX;
+        const startW = which === 'author' ? this.authorW : this.dateW;
+        document.body.classList.add('resizing-column');
+        h.classList.add('dragging');
+        const onMove = (ev: MouseEvent): void => {
+          const w = Math.max(MIN_COL_W, Math.min(MAX_COL_W, startW + ev.clientX - startX));
+          this.graphEl.style.setProperty(varName, `${w}px`);
+        };
+        const onUp = (): void => {
+          document.removeEventListener('mousemove', onMove);
+          document.removeEventListener('mouseup', onUp);
+          document.body.classList.remove('resizing-column');
+          h.classList.remove('dragging');
+          this.authorW = this.clampCol(this.readColW(varName), AUTHOR_W);
+          this.dateW = this.clampCol(this.readColW('--col-date-width'), DATE_W);
+          this.persistLayout();
+        };
+        document.addEventListener('mousemove', onMove);
+        document.addEventListener('mouseup', onUp);
+      });
+      // 键盘微调（Intellig：聚焦手柄后方向键 ±10px）
+      h.addEventListener('keydown', (e) => {
+        const step = e.key === 'ArrowLeft' ? -COL_KEY_STEP : e.key === 'ArrowRight' ? COL_KEY_STEP : 0;
+        if (!step) return;
+        e.preventDefault();
+        const cur = which === 'author' ? this.authorW : this.dateW;
+        const w = Math.max(MIN_COL_W, Math.min(MAX_COL_W, cur + step));
+        this.graphEl.style.setProperty(varName, `${w}px`);
+        if (which === 'author') this.authorW = w;
+        else this.dateW = w;
+        this.persistLayout();
+      });
+    });
+  }
+
+  private readColW(varName: string): number {
+    const raw = getComputedStyle(this.graphEl).getPropertyValue(varName);
+    const n = parseFloat(raw);
+    return Number.isFinite(n) ? n : NaN;
+  }
+
   private persistLayout(): void {
-    saveState({ ...(loadState<object>() ?? {}), paneW: this.paneW, subjectW: this.subjectW });
+    saveState({ ...(loadState<object>() ?? {}), paneW: this.paneW, authorW: this.authorW, dateW: this.dateW });
   }
 
   private async reload(append = false): Promise<void> {
     try {
-      const commits = await this.client.send('log:list', {
-        repoRoot: this.repoRoot,
-        skip: this.skip,
-        limit: this.pageSize,
-        all: this.showAll,
-        noMerges: this.noMerges,
-        author: (this.must('flt-author') as HTMLInputElement).value.trim() || undefined,
-        grep: (this.must('flt-grep') as HTMLInputElement).value.trim() || undefined,
-        path: (this.must('flt-path') as HTMLInputElement).value.trim() || undefined,
-      });
+      const [commits, branches] = await Promise.all([
+        this.client.send('log:list', {
+          repoRoot: this.repoRoot,
+          skip: this.skip,
+          limit: this.pageSize,
+          all: !this.branchFilter,
+          noMerges: this.noMerges,
+          author: this.authorFilter,
+          grep: (this.must('flt-grep') as HTMLInputElement).value.trim() || undefined,
+          path: (this.must('flt-path') as HTMLInputElement).value.trim() || undefined,
+          branch: this.branchFilter,
+          since: this.since,
+        }),
+        this.client.send('branch:list', { repoRoot: this.repoRoot }).catch(() => [] as BranchEntry[]),
+      ]);
+      this.branchInfos = branches;
       if (append) {
         this.nodes = [...this.nodes, ...computeLanes(commits)];
       } else {
@@ -322,9 +554,10 @@ export class GraphPanel {
         this.updateSearchInfo();
       }
       this.renderGraph();
+      this.renderPopups();
       this.must('page-info').textContent = `${this.nodes.length} 个提交`;
     } catch (err) {
-      this.graphEl.innerHTML = `<div class="empty">读取失败：${this.esc(String(err))}</div>`;
+      this.rowsEl.innerHTML = `<div class="gp-empty">读取失败：${this.esc(String(err))}</div>`;
     }
   }
 
@@ -334,39 +567,12 @@ export class GraphPanel {
     const height = this.nodes.length * ROW_H + 10;
     const laneCount =
       this.nodes.reduce((m, n) => Math.max(m, n.lane, ...n.parentLanes), 0) + 1;
-    // 列布局：lane 区 → hash → 消息(可调宽) → 作者 → 日期 → refs 徽标（右对齐）
-    const textX = laneCount * COL_W + 6;
-    const subjectX = textX + HASH_W + COL_GAP;
-    const authorX = subjectX + this.subjectW + COL_GAP;
-    const dateX = authorX + AUTHOR_W + COL_GAP;
-    const badgeRowW = (n: GraphNode): number =>
-      refBadges(n.commit.refs).reduce((s, b) => s + badgeWidth(b.text) + 4, 0);
-    const maxBadgeW = this.nodes.reduce((m, n) => Math.max(m, badgeRowW(n)), 0);
-    const minContentW = dateX + DATE_W + COL_GAP + maxBadgeW + 8;
-    const paneW = this.graphEl.parentElement?.clientWidth ?? 0;
-    const graphWidth = Math.max(minContentW, paneW - 6, 140);
-    const badgeRight = graphWidth - 4;
+    // 图沟槽宽：只放 lane 连线与节点；文本列全部由 HTML 行承载
+    const graphW = Math.max(60, laneCount * COL_W + 6);
+    this.graphEl.style.setProperty('--graph-w', `${graphW}px`);
+    (this.must('gp-canvas')).style.height = `${height}px`;
+
     const parts: string[] = [];
-
-    // 选中行高亮：半透明焦点色（深浅主题都不会糊成一块黑）
-    const selRow = this.selectedHash
-      ? this.nodes.findIndex((n) => n.commit.hash === this.selectedHash)
-      : -1;
-    if (selRow >= 0) {
-      parts.push(
-        `<rect class="row-sel" x="1" y="${selRow * ROW_H + 1}" width="${graphWidth - 2}" height="${ROW_H - 2}" rx="3"/>`,
-      );
-    }
-    // 搜索命中行高亮
-    if (this.searchPos >= 0) {
-      const row = this.matchRows[this.searchPos];
-      if (row !== undefined) {
-        parts.push(
-          `<rect class="row-search" x="1" y="${row * ROW_H + 1}" width="${graphWidth - 2}" height="${ROW_H - 2}" rx="3"/>`,
-        );
-      }
-    }
-
     // 连线：连到父提交的真实行（拓扑序里父提交可能隔着多行）
     for (const e of buildEdges(this.nodes)) {
       const x1 = e.fromLane * COL_W + COL_W / 2;
@@ -391,69 +597,88 @@ export class GraphPanel {
         );
       }
     }
-
-    // 节点与行
+    // 节点：按 lane 着色；HEAD 加粗描边，选中再加一圈
     this.nodes.forEach((node, row) => {
       const y = row * ROW_H + ROW_H / 2;
       const x = node.lane * COL_W + COL_W / 2;
       const isHead = isHeadCommit(node.commit);
       const selected = this.selectedHash === node.commit.hash;
-      const hit = this.searchPos >= 0 && this.matchRows[this.searchPos] === row;
-      // refs 徽标右对齐（各行结束边一致，消息列因此可获得稳定宽度）
-      const badges = refBadges(node.commit.refs);
-      let bx = badgeRight - Math.max(0, badgeRowW(node) - 4);
-      const badgesHtml: string[] = [];
-      for (const b of badges) {
-        const w = badgeWidth(b.text);
-        badgesHtml.push(
-          `<g class="badge-${b.kind}"><rect x="${bx}" y="${y - 8}" width="${w}" height="16" rx="8"/><text x="${bx + w / 2}" y="${y + 4}" text-anchor="middle">${this.esc(b.text)}</text></g>`,
-        );
-        bx += w + 4;
-      }
-      parts.push(
-        `<g class="gnode${selected ? ' selected' : ''}${hit ? ' hit' : ''}" data-hash="${node.commit.hash}" data-row="${row}">
-  <rect class="row-hit" x="0" y="${row * ROW_H}" width="${graphWidth}" height="${ROW_H}"/>
-  <circle cx="${x}" cy="${y}" r="${NODE_R}" class="${isHead ? 'node head' : 'node'}" fill="${laneColor(node.lane)}"/>
-  <text x="${textX}" y="${y + 4}" class="g-hash">${node.commit.shortHash}</text>
-  <text x="${subjectX}" y="${y + 4}" class="g-subject">${this.esc(fitText(node.commit.subject, this.subjectW))}</text>
-  <text x="${authorX}" y="${y + 4}" class="g-author">${this.esc(fitText(node.commit.author, AUTHOR_W))}</text>
-  <text x="${dateX}" y="${y + 4}" class="g-date">${this.esc(fitText(fmtDate(node.commit.authorDate), DATE_W))}</text>
-  ${badgesHtml.join('')}
-</g>`,
-      );
+      const cls = `node${isHead ? ' head' : ''}${selected ? ' selected' : ''}`;
+      parts.push(`<circle cx="${x}" cy="${y}" r="${NODE_R}" class="${cls}" fill="${laneColor(node.lane)}"/>`);
     });
+    this.graphSvgEl.innerHTML = `<svg width="${graphW}" height="${height}" viewBox="0 0 ${graphW} ${height}" class="graph-svg">${parts.join('')}</svg>`;
 
-    // 消息列右边框：拖拽调宽（覆盖在行之上，命中即进入 resize 而非选中）
-    parts.push(
-      `<rect class="col-resize" x="${subjectX + this.subjectW - 3}" y="0" width="6" height="${height}" title="拖拽调整消息列宽"/>`,
-    );
-
-    this.graphEl.innerHTML = `<svg width="${graphWidth}" height="${height}" viewBox="0 0 ${graphWidth} ${height}" class="graph-svg">${parts.join('')}</svg>`;
-    this.graphEl.querySelectorAll<SVGGElement>('.gnode').forEach((g) => {
-      g.addEventListener('click', () => this.selectCommit(g.dataset.hash!));
-      g.addEventListener('contextmenu', (e) => {
+    // HTML 行：文本 + 行内分支芯片（head 芯片最左）
+    if (!this.nodes.length) {
+      const filtered = !!(this.branchFilter || this.authorFilter || this.since || this.noMerges);
+      this.rowsEl.innerHTML = `<div class="gp-empty">${
+        filtered
+          ? '没有符合当前筛选条件的提交'
+          : '该仓库还没有提交'
+      }</div>`;
+      return;
+    }
+    this.rowsEl.innerHTML = this.nodes.map((node, row) => this.rowHtml(node, row)).join('');
+    this.rowsEl.querySelectorAll<HTMLElement>('.commit-row').forEach((row) => {
+      const hash = row.dataset.hash!;
+      row.addEventListener('click', () => void this.selectCommit(hash));
+      row.addEventListener('contextmenu', (e) => {
         e.preventDefault();
-        this.selectCommit(g.dataset.hash!);
-        this.showContextMenu(e.clientX, e.clientY, g.dataset.hash!);
+        void this.selectCommit(hash);
+        this.showContextMenu(e.clientX, e.clientY, hash);
+      });
+      row.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter' || e.key === ' ') {
+          e.preventDefault();
+          void this.selectCommit(hash);
+        }
       });
     });
-    this.graphEl.querySelector<SVGRectElement>('.col-resize')?.addEventListener('mousedown', (e) => {
-      e.preventDefault();
-      e.stopPropagation();
-      const startX = (e as MouseEvent).clientX;
-      const startW = this.subjectW;
-      const onMove = (ev: MouseEvent): void => {
-        this.subjectW = Math.max(MIN_SUBJECT_W, Math.min(MAX_SUBJECT_W, startW + ev.clientX - startX));
-        this.renderGraph();
-      };
-      const onUp = (): void => {
-        document.removeEventListener('mousemove', onMove);
-        document.removeEventListener('mouseup', onUp);
-        this.persistLayout();
-      };
-      document.addEventListener('mousemove', onMove);
-      document.addEventListener('mouseup', onUp);
+    this.rowsEl.querySelectorAll<HTMLElement>('.branch-label-collapsed').forEach((chip) => {
+      chip.addEventListener('click', (e) => {
+        e.stopPropagation();
+        let names: string[] = [];
+        try {
+          names = JSON.parse(chip.dataset.collapsed ?? '[]') as string[];
+        } catch {
+          names = [];
+        }
+        showMenuAt(
+          this.must('ctx-menu'),
+          e.clientX,
+          e.clientY,
+          names.map((n) => ({ label: n })),
+          () => undefined,
+        );
+      });
     });
+  }
+
+  private rowHtml(node: GraphNode, row: number): string {
+    const c = node.commit;
+    const selected = this.selectedHash === c.hash;
+    const hit = this.searchPos >= 0 && this.matchRows[this.searchPos] === row;
+    const { chips, collapsed } = branchChips(c.refs);
+    const color = laneColor(node.lane);
+    const chipsHtml = chips
+      .map(
+        (ch) =>
+          `<span class="branch-label branch-label-${ch.kind}" data-branch="${this.escAttr(ch.text)}" title="${this.escAttr(ch.title)}"><svg class="chip-ico" viewBox="0 0 16 16" aria-hidden="true">${CHIP_ICONS[ch.kind]}</svg><span class="branch-label-name">${this.esc(ch.text)}</span></span>`,
+      )
+      .join('');
+    const collapsedHtml = collapsed.length
+      ? `<span class="branch-label branch-label-collapsed" data-collapsed="${this.escAttr(JSON.stringify(collapsed))}" title="还有 ${collapsed.length} 个分支：${this.escAttr(collapsed.join('、'))}" role="button" tabindex="0">+${collapsed.length}</span>`
+      : '';
+    const dateFull = new Date(c.authorDate).toLocaleString();
+    return `<div class="commit-row${selected ? ' selected' : ''}${hit ? ' hit' : ''}" data-hash="${c.hash}" data-row="${row}" role="option" tabindex="0" aria-selected="${selected}">
+  <div class="commit-info">
+    <span class="commit-hash" title="${c.hash}">${c.shortHash}</span>
+    <div class="commit-title" title="${this.escAttr(c.subject)}">${this.esc(c.subject)}</div>
+    <div class="commit-branches" style="--chip-color:${color}">${chipsHtml}${collapsedHtml}</div>
+    <span class="commit-author" title="${this.escAttr(c.author)} &lt;${this.escAttr(c.authorEmail)}&gt;">${this.esc(c.author)}</span>
+    <span class="commit-date" title="${this.escAttr(dateFull)}">${this.esc(fmtDate(c.authorDate))}</span>
+  </div>
+</div>`;
   }
 
   // ---------- 详情 ----------
@@ -550,7 +775,7 @@ ${refs}
     this.must('commit-title').textContent = '提交详情';
     this.detailEl.innerHTML = '<div class="empty">点击图中节点查看详情</div>';
     this.renderFiles();
-    this.showDiff();
+    void this.showDiff();
   }
 
   private renderFiles(): void {

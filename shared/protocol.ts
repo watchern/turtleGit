@@ -165,6 +165,10 @@ export interface LogQuery {
   all?: boolean;
   /** 排除合并提交（--no-merges） */
   noMerges?: boolean;
+  /** 只看某个分支/引用的历史（位置参数 ref；设置时忽略 all） */
+  branch?: string;
+  /** 时间范围：'24h' | '7d' | ISO 日期（--since） */
+  since?: string;
 }
 
 export interface RpcRequests {

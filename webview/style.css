@@ -808,6 +808,10 @@ tr.d-del .d-text::before {
   width: 460px;
   /* 原生 resize 角标改为左侧专用 split-handle 拖拽（见 .split-handle） */
   resize: none;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  overflow: hidden;
 }
 
 /* 可拖拽分栏把手（版本分支图：左图面板 | 右详情面板） */
@@ -823,10 +827,255 @@ tr.d-del .d-text::before {
   background: var(--focus);
 }
 
+/* ---------- 左栏顶部筛选行（Intellig log-filter-row） ---------- */
+.log-filter-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 6px;
+  border-bottom: 1px solid var(--border);
+  flex: none;
+}
+
+.log-filter-search {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.log-filter-search-input {
+  width: 170px;
+  min-width: 0;
+  font-size: 11px;
+  padding: 2px 6px;
+  background: var(--input-bg);
+  color: var(--input-fg);
+  border: 1px solid var(--input-border);
+  border-radius: 2px;
+}
+
+.log-filter-search-input:focus {
+  outline: 1px solid var(--focus);
+}
+
+/* 弹出式筛选按钮：分支: 值 ▾ */
+.log-filter-pop {
+  position: relative;
+  flex: none;
+}
+
+.log-filter-pop-btn {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 11px;
+  line-height: 18px;
+  padding: 1px 5px;
+  max-width: 200px;
+  background: var(--btn-sec-bg);
+  color: var(--btn-sec-fg);
+  border: none;
+  border-radius: 3px;
+  cursor: pointer;
+}
+
+.log-filter-pop-btn:hover {
+  background: var(--btn-sec-hover);
+}
+
+.log-filter-pop-label {
+  color: var(--muted);
+  flex: none;
+}
+
+.log-filter-pop-value {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 120px;
+}
+
+.log-filter-pop-caret {
+  flex: none;
+  font-size: 9px;
+  color: var(--muted);
+}
+
+.log-filter-popup {
+  position: absolute;
+  top: calc(100% + 2px);
+  left: 0;
+  z-index: 30;
+  min-width: 170px;
+  max-width: 280px;
+  max-height: 320px;
+  overflow: auto;
+  padding: 4px 0;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.35);
+}
+
+.log-filter-popup-section {
+  font-size: 10px;
+  color: var(--muted);
+  padding: 4px 8px 2px;
+  text-transform: uppercase;
+}
+
+.log-filter-popup-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  text-align: left;
+  font-size: 12px;
+  padding: 3px 8px;
+  background: none;
+  border: none;
+  color: var(--fg);
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.log-filter-popup-item:hover {
+  background: var(--hover);
+}
+
+.log-filter-popup-item.active {
+  font-weight: 600;
+}
+
+.log-filter-tree-check {
+  flex: none;
+  width: 12px;
+  color: var(--focus);
+}
+
+/* ---------- 表头（sticky，与行内列对齐） ---------- */
+.log-column-header {
+  position: sticky;
+  top: 0;
+  z-index: 3;
+  flex: none;
+  display: flex;
+  align-items: stretch;
+  height: 24px;
+  background: var(--bg);
+  border-bottom: 1px solid var(--border);
+  font-size: 11px;
+  color: var(--muted);
+  user-select: none;
+}
+
+.log-column-header-info {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  /* 图沟槽与行左内边距一致，保证表头与行各列对齐 */
+  padding-left: var(--graph-w, 60px);
+  padding-right: 8px;
+}
+
+.log-column-header-hash {
+  flex: none;
+  width: 50px;
+}
+
+.log-column-header-title {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.log-column-header-author {
+  flex: none;
+  width: var(--col-author-width, 120px);
+  padding-left: 12px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.log-column-header-date {
+  flex: none;
+  width: var(--col-date-width, 145px);
+  padding-left: 12px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* 列宽手柄：7px 命中区跨列边界，可见 1px 细线由 ::after 居中绘制，
+   hover/拖拽/聚焦时变为焦点色 2px（Intellig log 表同款） */
+.log-column-resize-handle {
+  flex: none;
+  width: 7px;
+  align-self: stretch;
+  margin: 0 -3px;
+  cursor: col-resize;
+  position: relative;
+  z-index: 2;
+}
+
+.log-column-resize-handle::after {
+  content: '';
+  position: absolute;
+  top: 2px;
+  bottom: 2px;
+  left: 3px;
+  width: 1px;
+  background: var(--border);
+}
+
+.log-column-resize-handle:hover::after,
+.log-column-resize-handle.dragging::after,
+.log-column-resize-handle:focus-visible::after {
+  background: var(--focus);
+  width: 2px;
+  left: 2px;
+}
+
+/* 列宽拖拽进行中：全局禁止选字 + 统一 col-resize 光标 */
+body.resizing-column {
+  cursor: col-resize;
+  user-select: none;
+}
+
+/* ---------- 滚动区：SVG 图（绝对定位，只画连线/节点）+ HTML 行 ---------- */
 .graph-scroll {
   flex: 1;
   overflow: auto;
   min-height: 0;
+}
+
+.gp-canvas {
+  position: relative;
+}
+
+/* 图覆盖在行背景之上（z-index:1），但 pointer-events:none —— 行交互由 HTML 行负责 */
+.gp-graph {
+  position: absolute;
+  left: 0;
+  top: 0;
+  z-index: 1;
+  pointer-events: none;
+}
+
+.gp-rows {
+  position: relative;
+}
+
+.gp-empty {
+  padding: 24px 12px;
+  text-align: center;
+  font-size: 12px;
+  color: var(--muted);
 }
 
 .graph-svg {
@@ -852,96 +1101,176 @@ tr.d-del .d-text::before {
   stroke-width: 2;
 }
 
-.graph-svg .gnode {
-  cursor: pointer;
-}
-
-/* 整行命中区：透明但保留点击/悬停命中（fill:none 会丢失命中） */
-.graph-svg .row-hit {
-  fill: transparent;
-}
-
-.graph-svg .gnode:hover .row-hit {
-  fill: color-mix(in srgb, var(--fg) 10%, transparent);
-}
-
-/* 选中行：半透明焦点色叠加，深浅主题都不会糊成一块黑 */
-.graph-svg .row-sel {
-  fill: color-mix(in srgb, var(--focus) 25%, transparent);
-}
-
-.graph-svg .gnode.selected circle {
+.graph-svg .node.selected {
   stroke: var(--fg);
   stroke-width: 2.5;
 }
 
-.graph-svg .g-hash {
-  fill: var(--fg);
-  font-size: 11px;
+/* ---------- 提交行（Intellig commit-row：24px 行高 + flex 列） ---------- */
+.commit-row {
+  display: flex;
+  align-items: center;
+  height: 26px;
+  /* 图沟槽宽由 renderGraph 写入 --graph-w */
+  padding-left: var(--graph-w, 60px);
+  cursor: pointer;
+  user-select: none;
+}
+
+.commit-row:hover {
+  background: var(--hover);
+}
+
+.commit-row.selected {
+  background: color-mix(in srgb, var(--focus) 25%, transparent);
+}
+
+.commit-row.hit {
+  background: color-mix(in srgb, var(--focus) 14%, transparent);
+}
+
+.commit-row:focus-visible {
+  outline: 1px solid var(--focus);
+  outline-offset: -1px;
+}
+
+.commit-info {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  height: 100%;
+  padding: 0 8px;
+}
+
+.commit-hash {
+  flex: none;
+  width: 50px;
   font-family: var(--vscode-editor-font-family, monospace);
-}
-
-.graph-svg .gnode.selected .g-hash {
-  font-weight: 600;
-}
-
-.graph-svg .badge-head rect,
-.graph-svg .badge-branch rect {
-  fill: color-mix(in srgb, var(--focus) 35%, transparent);
-}
-
-.graph-svg .badge-tag rect {
-  fill: color-mix(in srgb, var(--mod) 35%, transparent);
-}
-
-.graph-svg .badge-remote rect {
-  fill: color-mix(in srgb, var(--muted) 25%, transparent);
-}
-
-.graph-svg .badge-head text,
-.graph-svg .badge-branch text,
-.graph-svg .badge-tag text,
-.graph-svg .badge-remote text {
-  fill: var(--fg);
-  font-size: 10px;
-}
-
-/* 日志列：消息 / 作者 / 日期（SVG 文本，超出由 fitText 截断） */
-.graph-svg .g-subject {
-  fill: var(--fg);
-  font-size: 12px;
-}
-
-.graph-svg .g-author,
-.graph-svg .g-date {
-  fill: var(--muted);
   font-size: 11px;
+  color: var(--muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
-/* 搜索命中行高亮（区别于选中行的焦点色） */
-.graph-svg .row-search {
-  fill: color-mix(in srgb, var(--focus) 20%, transparent);
+.commit-row.selected .commit-hash {
+  color: var(--fg);
 }
 
-.graph-svg .gnode.hit .row-hit {
-  fill: color-mix(in srgb, var(--focus) 10%, transparent);
+.commit-title {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 12px;
+  line-height: 24px;
+  text-align: left;
 }
 
-/* 消息列右边框：拖拽调宽 */
-.graph-svg .col-resize {
-  fill: transparent;
-  cursor: col-resize;
+/* 分支芯片槽：位于消息与作者列之间，必须可收缩（flex-shrink:1 + max-width），
+   否则多 ref 提交会把作者/日期列挤出右边界（Intellig 同款教训） */
+.commit-branches {
+  display: flex;
+  flex-shrink: 1;
+  min-width: 0;
+  max-width: 60%;
+  overflow: hidden;
+  align-items: center;
+  gap: 4px;
+  margin-right: 8px;
 }
 
-.graph-svg .col-resize:hover {
-  fill: color-mix(in srgb, var(--focus) 45%, transparent);
+.commit-branches:empty {
+  display: none;
 }
 
-/* 工具栏搜索框（加宽）与匹配计数 */
-.filter.wide {
-  width: 220px;
+.commit-author {
+  flex: none;
+  width: var(--col-author-width, 120px);
+  font-size: 11px;
+  color: var(--muted);
+  text-align: left;
+  padding-left: 12px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
+.commit-date {
+  flex: none;
+  width: var(--col-date-width, 145px);
+  font-size: 11px;
+  color: var(--muted);
+  text-align: left;
+  padding-left: 12px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* 选中行：次要文字（作者/日期/哈希）随选中态提亮，避免半透明底上发灰 */
+.commit-row.selected .commit-author,
+.commit-row.selected .commit-date {
+  color: var(--fg);
+}
+
+/* ---------- 行内分支/标签芯片（Intellig branch-label） ---------- */
+.branch-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  flex: none;
+  max-width: 200px;
+  padding: 1px 5px;
+  border-radius: 3px;
+  font-size: 11px;
+  line-height: 15px;
+  background: var(--badge-bg);
+  color: var(--fg);
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  vertical-align: middle;
+}
+
+.branch-label-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.chip-ico {
+  flex: none;
+  width: 11px;
+  height: 11px;
+  /* 图标颜色 = 该提交 lane 配色（行内 --chip-color），与图连线同色 */
+  color: var(--chip-color, var(--muted));
+}
+
+/* 当前分支（HEAD）芯片：加粗 + 内描边环（不占布局，不会被 .commit-branches 裁切） */
+.branch-label-head {
+  font-weight: 700;
+  box-shadow: inset 0 0 0 1.5px var(--fg);
+}
+
+/* 折叠的 "+N" 芯片：弱化为元信息色，可点击弹出完整列表 */
+.branch-label-collapsed {
+  color: var(--muted);
+  cursor: pointer;
+}
+
+.branch-label-collapsed:hover {
+  color: var(--fg);
+}
+
+.branch-label-collapsed:focus-visible {
+  outline: 1px solid var(--focus);
+  outline-offset: 1px;
+}
+
+/* 搜索命中计数 */
 .search-info {
   font-size: 11px;
   color: var(--muted);

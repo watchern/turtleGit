@@ -29,6 +29,17 @@ async function main(): Promise<void> {
   const cp = await import('child_process');
 
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'turtlegit-smoke-'));
+  /**
+   * 清理临时仓库（尽力而为）：Windows 上刚 spawn 完的 git 进程/杀软可能仍持有
+   * 目录句柄，rmSync 偶发 EBUSY 会让整轮冒烟崩在收尾——清理失败不应算测试失败。
+   */
+  const rmTmp = (p: string): void => {
+    try {
+      fs.rmSync(p, { recursive: true, force: true });
+    } catch {
+      /* 忽略：临时目录清理失败不影响断言结果 */
+    }
+  };
   const run = (args: string[]) => {
     const r = cp.spawnSync('git', args, { cwd: dir, encoding: 'utf8' });
     if (r.status !== 0) throw new Error(`git ${args.join(' ')} failed: ${r.stderr}`);
@@ -121,7 +132,7 @@ async function main(): Promise<void> {
     const emptyStats = await git.numstat(d3);
     check('空仓库 numstat 不抛错', Array.isArray(emptyStats));
     check('空仓库统计未跟踪文件 3 行', emptyStats.length === 1 && emptyStats[0].additions === 3, emptyStats);
-    fs.rmSync(d3, { recursive: true, force: true });
+    rmTmp(d3);
   }
 
   console.log('== 部分提交（勾选子集） ==');
@@ -243,7 +254,7 @@ async function main(): Promise<void> {
     env: bareEnv,
   }).stdout.trim();
   check('无身份仓库的作者为签署人', noIdAuthor === '王五 <wangwu@example.com>', noIdAuthor);
-  fs.rmSync(noId, { recursive: true, force: true });
+  rmTmp(noId);
 
   console.log('== 分支信息 ==');
   const info = await git.branchInfo(dir);
@@ -317,7 +328,7 @@ async function main(): Promise<void> {
   check('absPathIn 中文路径往返', relPathIn(dir, absPathIn(dir, '中文目录/文件.txt')) === '中文目录/文件.txt');
   check('repoRootOf 使用平台分隔符', (await git.repoRootOf(dir)) === dir, await git.repoRootOf(dir));
 
-  fs.rmSync(dir, { recursive: true, force: true });
+  rmTmp(dir);
 
   console.log('== 分支操作层（BranchOps） ==');
   {
@@ -399,7 +410,7 @@ async function main(): Promise<void> {
     await ops.deleteBranch(d2, 'feature-x', true);
     check('删除分支', !(await ops.branches(d2)).some((b) => b.name === 'feature-x'));
 
-    fs2.rmSync(d2, { recursive: true, force: true });
+    rmTmp(d2);
   }
 
   console.log('== 拉取 / 推送（BranchOps pull/push） ==');
@@ -466,8 +477,8 @@ async function main(): Promise<void> {
     );
     rw(['checkout', 'main']);
 
-    fs3.rmSync(bare, { recursive: true, force: true });
-    fs3.rmSync(work, { recursive: true, force: true });
+    rmTmp(bare);
+    rmTmp(work);
   }
 
   console.log('== stash 按文件查看（主窗口 Stash 面板底层能力） ==');
@@ -512,7 +523,7 @@ async function main(): Promise<void> {
 
     await ops.stashPop(d4, 0);
     check('pop 后两文件恢复', fs4.readFileSync(path4.join(d4, 'a.txt'), 'utf8').includes('three'));
-    fs4.rmSync(d4, { recursive: true, force: true });
+    rmTmp(d4);
   }
 
   console.log('== lane 算法 ==');
@@ -649,6 +660,43 @@ async function main(): Promise<void> {
     check('HEAD -> main 判为当前提交', isHeadCommit(mk('h', [], ['HEAD -> main'])));
     check('裸 HEAD 判为当前提交', isHeadCommit(mk('h', [], ['HEAD'])));
     check('普通分支不是当前提交', !isHeadCommit(mk('h', [], ['main'])));
+  }
+
+  console.log('== 行内分支芯片（branchChips）与日期预设（sinceArg） ==');
+  {
+    const { branchChips } = await import('../webview/graph/lanes');
+    const { sinceArg } = await import('../src/host/git/parsers');
+
+    // branchChips：head 芯片最左且取箭头后分支名（%D 里 'HEAD -> main' 是单个条目）
+    const c1 = branchChips(['HEAD -> main', 'origin/main', 'tag: v1']);
+    check('head 芯片排最左', c1.chips[0]?.kind === 'head' && c1.chips[0]?.text === 'main', c1.chips[0]);
+    check('head 之后是远程分支', c1.chips[1]?.kind === 'remote' && c1.chips[1]?.text === 'origin/main', c1.chips.map((c) => c.text));
+    check('标签排在分支之后', c1.chips[2]?.kind === 'tag' && c1.chips[2]?.text === 'v1', c1.chips.map((c) => c.text));
+    check('head 芯片带 title', /当前分支/.test(c1.chips[0]?.title ?? ''), c1.chips[0]?.title);
+    check('3 个 ref 无折叠', c1.collapsed.length === 0, c1.collapsed);
+
+    // 分离头指针：裸 HEAD
+    const c2 = branchChips(['HEAD']);
+    check('裸 HEAD 显示 HEAD 芯片', c2.chips.length === 1 && c2.chips[0]?.text === 'HEAD' && c2.chips[0]?.kind === 'head', c2.chips);
+    check('分离头指针 title 提示', /分离头指针/.test(c2.chips[0]?.title ?? ''), c2.chips[0]?.title);
+
+    // 超过 3 个分支：截断 + collapsed
+    const c3 = branchChips(['b1', 'b2', 'b3', 'b4', 'b5', 'tag: t1']);
+    check('分支最多展示 3 个', c3.chips.filter((c) => c.kind !== 'tag').length === 3, c3.chips.map((c) => c.text));
+    check('其余分支进 collapsed', c3.collapsed.length === 2 && c3.collapsed[0] === 'b4', c3.collapsed);
+    check('collapsed 不含标签', !c3.collapsed.includes('t1'), c3.collapsed);
+    check('标签仍展示', c3.chips.some((c) => c.kind === 'tag' && c.text === 't1'), c3.chips.map((c) => c.text));
+
+    // 非 HEAD 提交：无 head 芯片
+    const c4 = branchChips(['feature', 'origin/feature']);
+    check('非 HEAD 提交无 head 芯片', c4.chips.every((c) => c.kind !== 'head'), c4.chips);
+    check('空 refs 无芯片', branchChips([]).chips.length === 0 && branchChips([]).collapsed.length === 0);
+
+    // sinceArg：预设映射 + 透传
+    check('24h 映射', sinceArg('24h') === '24 hours ago', sinceArg('24h'));
+    check('7d 映射', sinceArg('7d') === '7 days ago', sinceArg('7d'));
+    check('日期串原样透传', sinceArg('2026-01-01') === '2026-01-01', sinceArg('2026-01-01'));
+    check('空白 trim', sinceArg('  7d ') === '7 days ago', sinceArg('  7d '));
   }
 
   console.log('== 文件目录树构建（buildFileTree / collectFiles） ==');
@@ -862,7 +910,7 @@ async function main(): Promise<void> {
     const lc = await git.fileLineCounts(dir3, 'f.txt', {});
     check('fileLineCounts 旧侧 3 行', lc.old === 3, lc);
     check('fileLineCounts 新侧 5 行', lc.new === 5, lc);
-    fs.rmSync(dir3, { recursive: true, force: true });
+    rmTmp(dir3);
   }
 
   console.log('== 原生 diff 内容提供器（blobAtRef / turtlegit: URI） ==');
@@ -1077,7 +1125,7 @@ async function main(): Promise<void> {
       missErr = err;
     }
     check('fetchRemote 不存在的远程抛 GitRunnerError', missErr instanceof GitRunnerError, missErr);
-    fs.rmSync(dir4, { recursive: true, force: true });
+    rmTmp(dir4);
   }
 
   console.log('== rangeFiles：分支区间变更文件（真实仓库） ==');
@@ -1135,7 +1183,56 @@ async function main(): Promise<void> {
     }
     check('rangeFiles 非法区间抛错', rangeErr instanceof Error, rangeErr);
 
-    fs.rmSync(dir5, { recursive: true, force: true });
+    rmTmp(dir5);
+  }
+
+  console.log('== log 分支/时间过滤（branch / since）真实仓库 ==');
+  {
+    const dir6 = fs.mkdtempSync(path.join(os.tmpdir(), 'turtlegit-logfilter-'));
+    const work = path.join(dir6, 'work');
+    fs.mkdirSync(work);
+    const run6 = (args: string[], env?: Record<string, string>): void => {
+      const r = cp.spawnSync('git', args, { cwd: work, encoding: 'utf8', env: { ...process.env, ...env } });
+      if (r.status !== 0) throw new Error(`git ${args.join(' ')} failed: ${r.stderr}`);
+    };
+    run6(['init', '-q', '-b', 'main']);
+    run6(['config', 'user.email', 'test@example.com']);
+    run6(['config', 'user.name', '测试用户']);
+    // 一条 30 天前的提交（作者/提交时间都改，--since 按提交时间过滤）。
+    // 注意：部分 git 构建（Windows 2.55）拒绝把 "30 days ago" 之类的相对日期
+    // 写进 GIT_*_DATE 环境变量，必须用 Node 算出的 ISO 时间戳。
+    const oldIso = new Date(Date.now() - 30 * 86400e3).toISOString();
+    fs.writeFileSync(path.join(work, 'a.txt'), 'old\n', 'utf8');
+    run6(['add', '-A']);
+    run6(['commit', '-qm', 'old commit'], {
+      GIT_AUTHOR_DATE: oldIso,
+      GIT_COMMITTER_DATE: oldIso,
+    });
+    fs.writeFileSync(path.join(work, 'a.txt'), 'new\n', 'utf8');
+    run6(['add', '-A']);
+    run6(['commit', '-qm', 'recent commit']);
+    run6(['checkout', '-q', '-b', 'feature']);
+    fs.writeFileSync(path.join(work, 'b.txt'), 'feature only\n', 'utf8');
+    run6(['add', '-A']);
+    run6(['commit', '-qm', 'feature commit']);
+    run6(['checkout', '-q', 'main']);
+
+    const all = await git.log({ repoRoot: work, all: true, limit: 50 });
+    check('无过滤时三个提交都在', all.length === 3, all.map((c) => c.subject));
+
+    const onMain = await git.log({ repoRoot: work, branch: 'main', limit: 50 });
+    check('branch=main 只含 main 历史', onMain.length === 2 && onMain.every((c) => c.subject !== 'feature commit'), onMain.map((c) => c.subject));
+
+    const onFeature = await git.log({ repoRoot: work, branch: 'feature', limit: 50 });
+    check('branch=feature 含 feature 提交', onFeature.length === 3 && onFeature.some((c) => c.subject === 'feature commit'), onFeature.map((c) => c.subject));
+
+    const recent = await git.log({ repoRoot: work, all: true, since: '7d', limit: 50 });
+    check('since=7d 排除 30 天前提交', recent.length === 2 && recent.every((c) => c.subject !== 'old commit'), recent.map((c) => c.subject));
+
+    const last24h = await git.log({ repoRoot: work, all: true, since: '24h', limit: 50 });
+    check('since=24h 同样排除旧提交', last24h.length === 2, last24h.map((c) => c.subject));
+
+    rmTmp(dir6);
   }
 
   if (failures > 0) {

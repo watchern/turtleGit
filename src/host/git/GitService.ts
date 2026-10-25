@@ -1,7 +1,7 @@
 import * as path from 'path';
 import * as fs from 'fs';
 import { GitRunner, GitRunnerError } from './GitRunner';
-import { parseStatus, parseLog, parseCommitFiles, logFormat, parseSignOffIdentity } from './parsers';
+import { parseStatus, parseLog, parseCommitFiles, logFormat, parseSignOffIdentity, sinceArg } from './parsers';
 import { normalizeFsPath, absPathIn } from '../core/paths';
 import {
   BranchInfo,
@@ -417,7 +417,10 @@ export class GitService {
     const args = ['log', `--pretty=format:${logFormat()}`, '--date-order', '--topo-order'];
     args.push('-n', String((query.skip ?? 0) + (query.limit ?? 100)));
     if (query.skip && query.skip > 0) args.push('--skip', String(query.skip));
-    if (query.all) args.push('--all');
+    // 指定分支时用位置参数 ref（--all 与 ref 同时给会取并集，不是过滤）
+    if (query.branch) args.push(query.branch);
+    else if (query.all) args.push('--all');
+    if (query.since) args.push(`--since=${sinceArg(query.since)}`);
     if (query.author) args.push(`--author=${query.author}`);
     if (query.grep) args.push(`--grep=${query.grep}`, '-i');
     if (query.noMerges) args.push('--no-merges');

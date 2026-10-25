@@ -2,6 +2,17 @@ import { FileStatus, StagedStatus, CommitInfo, CommitFile } from '../../../share
 import { absPathIn } from '../core/paths';
 
 /**
+ * 把前端的日期预设（'24h' / '7d'）或任意日期串映射为 git `--since` 参数。
+ * 预设之外的值原样透传（git 自身解析 ISO 日期 / "2 weeks ago" 等）。
+ */
+export function sinceArg(since: string): string {
+  const s = since.trim();
+  if (s === '24h') return '24 hours ago';
+  if (s === '7d') return '7 days ago';
+  return s;
+}
+
+/**
  * 解析 `git status --porcelain=v2 -z` 输出。
  * 条目格式（NUL 分隔）：
  *   1 <XY> <sub> <mH> <mI> <mW> <hH> <hI> <path>

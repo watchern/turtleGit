@@ -199,11 +199,60 @@ export function refBadges(refs: string[]): Array<{ text: string; kind: 'head' | 
       return { text: r, kind: 'head' as const };
     }
     if (r.startsWith('tag:')) {
-      return { text: r.slice(4), kind: 'tag' as const };
+      // slice(4) 会留下冒号后的空格（"tag: v1" → " v1"），必须 trim
+      return { text: r.slice(4).trim(), kind: 'tag' as const };
     }
     if (r.includes('/')) {
       return { text: r, kind: 'remote' as const };
     }
     return { text: r, kind: 'branch' as const };
   });
+}
+
+/** 行内分支芯片（IntelliJ 风格：消息列内联展示，head 芯片排最左） */
+export interface BranchChip {
+  /** 芯片显示文本（head 芯片取箭头后的分支名） */
+  text: string;
+  kind: 'head' | 'branch' | 'remote' | 'tag';
+  /** 悬停提示 */
+  title: string;
+}
+
+/**
+ * 从 refs 生成行内分支芯片列表（IntelliJ log 表风格）：
+ * - head 芯片排最左（`HEAD -> main` 取 `main`；分离头指针显示 `HEAD`）；
+ * - 本地/远程分支最多 maxBranches 个，其余进 collapsed（渲染为 `+N` 可点击芯片）；
+ * - 标签排在分支之后（IntelliJ 同序）。
+ */
+export function branchChips(
+  refs: string[],
+  maxBranches = 3,
+): { chips: BranchChip[]; collapsed: string[] } {
+  const badges = refBadges(refs);
+  const head = badges.find((b) => b.kind === 'head');
+  const headText = head ? head.text.replace(/^HEAD -> /, '') : '';
+  // 裸 HEAD（无箭头）= 分离头指针；'HEAD -> x' 才是当前分支
+  const detached = headText === 'HEAD';
+  const branches = badges.filter((b) => b.kind === 'branch' || b.kind === 'remote');
+  const tags = badges.filter((b) => b.kind === 'tag');
+  const chips: BranchChip[] = [];
+  if (head) {
+    chips.push({
+      text: headText || 'HEAD',
+      kind: 'head',
+      title: detached ? '分离头指针 (HEAD)' : `当前分支: ${headText}`,
+    });
+  }
+  for (const b of branches.slice(0, maxBranches)) {
+    chips.push({
+      text: b.text,
+      kind: b.kind,
+      title: b.kind === 'remote' ? `远程分支: ${b.text}` : `本地分支: ${b.text}`,
+    });
+  }
+  for (const t of tags) {
+    chips.push({ text: t.text, kind: 'tag', title: `标签: ${t.text}` });
+  }
+  const collapsed = branches.slice(maxBranches).map((b) => b.text);
+  return { chips, collapsed };
 }
