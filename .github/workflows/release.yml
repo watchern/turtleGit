@@ -27,9 +27,10 @@ jobs:
         with:
           fetch-depth: 0 # 生成发布说明需要完整历史与标签
 
+      # 同 ci.yml：必须用 pnpm 11（pnpm-workspace.yaml 的 allowBuilds 字段）
       - uses: pnpm/action-setup@v4
         with:
-          version: 9
+          version: 11
 
       - uses: actions/setup-node@v4
         with:

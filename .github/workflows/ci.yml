@@ -14,10 +14,11 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      # lockfileVersion 9.0 → 用 pnpm 9 安装，保证与本地锁文件一致
+      # pnpm-workspace.yaml 用的是 pnpm 11 的 allowBuilds 字段（esbuild/vsce-sign 构建脚本审批），
+      # 必须与本机 pnpm 11.x 保持一致——旧版 pnpm 不认识该字段且强制要求 packages 字段会直接报错
       - uses: pnpm/action-setup@v4
         with:
-          version: 9
+          version: 11
 
       # vsce 4.x 要求 Node >= 22
       - uses: actions/setup-node@v4
