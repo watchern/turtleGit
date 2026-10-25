@@ -12,9 +12,54 @@ export function toast(text: string, isError = false): void {
   }, 3000);
 }
 
-export function promptValue(text: string, initial = ''): string | null {
-  const value = window.prompt(text, initial);
-  return value === null ? null : value.trim();
+/**
+ * Webview 内模态输入框（替代 window.prompt）。
+ * VSCode webview 禁用原生 prompt()——调用会静默返回 null，
+ * 导致「新建分支 / 添加远程仓库」等按钮点击无反应，必须自绘。
+ * 用法：`const name = await promptValue('名称：', ''); if (!name) return;`
+ */
+export function promptValue(text: string, initial = ''): Promise<string | null> {
+  return new Promise((resolve) => {
+    const overlay = document.createElement('div');
+    overlay.className = 'modal-overlay';
+    overlay.innerHTML = `
+<div class="modal" role="dialog" aria-modal="true">
+  <div class="modal-text"></div>
+  <input class="modal-input" type="text" spellcheck="false">
+  <div class="modal-btns">
+    <button class="mini" data-act="cancel">取消</button>
+    <button class="mini primary" data-act="ok">确定</button>
+  </div>
+</div>`;
+    (overlay.querySelector('.modal-text') as HTMLElement).textContent = text;
+    const input = overlay.querySelector('.modal-input') as HTMLInputElement;
+    input.value = initial;
+    let done = false;
+    const finish = (value: string | null): void => {
+      if (done) return;
+      done = true;
+      overlay.remove();
+      resolve(value === null ? null : value.trim());
+    };
+    overlay.querySelector('[data-act="ok"]')!.addEventListener('click', () => finish(input.value));
+    overlay.querySelector('[data-act="cancel"]')!.addEventListener('click', () => finish(null));
+    input.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') {
+        e.preventDefault();
+        finish(input.value);
+      } else if (e.key === 'Escape') {
+        e.preventDefault();
+        finish(null);
+      }
+    });
+    // 点击遮罩空白处视为取消（mousedown 起点在遮罩上才算，避免拖拽选中文本误关）
+    overlay.addEventListener('mousedown', (e) => {
+      if (e.target === overlay) finish(null);
+    });
+    document.body.appendChild(overlay);
+    input.focus();
+    input.select();
+  });
 }
 
 /** 在指定位置弹出上下文菜单，返回所选 index 或 null */

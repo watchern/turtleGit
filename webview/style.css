@@ -129,6 +129,36 @@ button.mini {
   outline: 1px solid var(--focus);
 }
 
+/* 签署人输入框：提交区「签署」勾选后出现（侧边栏窄栏通铺，对话框固定宽度） */
+.signoff-input {
+  font-family: inherit;
+  font-size: 12px;
+  padding: 3px 8px;
+  width: 200px;
+  background: var(--input-bg);
+  color: var(--input-fg);
+  border: 1px solid var(--input-border);
+  border-radius: 2px;
+}
+
+.signoff-input:focus {
+  outline: 1px solid var(--focus);
+}
+
+.sc-signoff {
+  padding: 0 8px 8px;
+}
+
+.sc-signoff .signoff-input {
+  width: 100%;
+}
+
+/* 对话框底部行内输入框更窄，避免挤压「提交」按钮 */
+.commit-foot .signoff-input {
+  width: 180px;
+  flex: none;
+}
+
 .repo-name,
 .page-info,
 .diff-title {
@@ -765,6 +795,7 @@ tr.d-del .d-text::before {
   border-radius: 5px;
 }
 
+
 /* ---------- 版本分支图 ---------- */
 .graph-pane {
   width: 300px;
@@ -787,34 +818,49 @@ tr.d-del .d-text::before {
   opacity: 0.7;
 }
 
+/* 节点填充走 lane 配色（SVG 内联 fill）：彩点在深浅主题下都清晰。
+   此前 fill: var(--bg)（编辑器背景色），暗黑主题下就是近黑实心点，选中态描边加粗后更明显。 */
 .graph-svg .node {
-  fill: var(--bg);
-  stroke: var(--muted);
-  stroke-width: 2;
+  stroke: var(--bg);
+  stroke-width: 1.5;
 }
 
 .graph-svg .node.head {
-  fill: var(--add);
-  stroke: var(--add);
+  stroke: var(--fg);
+  stroke-width: 2;
 }
 
 .graph-svg .gnode {
   cursor: pointer;
 }
 
-.graph-svg .gnode:hover circle {
-  stroke: var(--focus);
+/* 整行命中区：透明但保留点击/悬停命中（fill:none 会丢失命中） */
+.graph-svg .row-hit {
+  fill: transparent;
+}
+
+.graph-svg .gnode:hover .row-hit {
+  fill: color-mix(in srgb, var(--fg) 10%, transparent);
+}
+
+/* 选中行：半透明焦点色叠加，深浅主题都不会糊成一块黑 */
+.graph-svg .row-sel {
+  fill: color-mix(in srgb, var(--focus) 25%, transparent);
 }
 
 .graph-svg .gnode.selected circle {
-  stroke: var(--focus);
-  stroke-width: 3;
+  stroke: var(--fg);
+  stroke-width: 2.5;
 }
 
 .graph-svg .g-hash {
-  fill: var(--muted);
+  fill: var(--fg);
   font-size: 11px;
   font-family: var(--vscode-editor-font-family, monospace);
+}
+
+.graph-svg .gnode.selected .g-hash {
+  font-weight: 600;
 }
 
 .graph-svg .badge-head rect,
@@ -966,6 +1012,7 @@ tr.d-del .d-text::before {
   word-break: break-all;
 }
 
+
 /* ---------- 侧边栏提交视图（紧凑竖向布局） ---------- */
 
 .sidebar-commit {
@@ -974,15 +1021,15 @@ tr.d-del .d-text::before {
   height: 100%;
   min-height: 0;
   /* 外框向左右各外扩 20px：对齐 Claude Code 的 -20px 负边距，抵消 webview 容器留白，内容通铺面板宽度 */
-  margin-left: -10px;
-  margin-right: -10px;
+  margin-left: -20px;
+  margin-right: -20px;
 }
 
 .sc-head {
   display: flex;
   align-items: center;
   gap: 6px;
-  padding: 4px 0px;
+  padding: 3px 4px;
   flex-wrap: wrap;
   border-bottom: 1px solid var(--border);
 }
@@ -1012,19 +1059,18 @@ button.icon:hover {
   min-height: 60px;
 }
 
-/* 参照 Claude Code webview：列表行 hover 通铺全宽、文字内缩 8px、4px 垂直节奏 */
-/* 窄侧边栏：隐藏文件路径列，把宽度让给文件名 */
+/* 窄侧边栏：隐藏文件路径列；行内边距尽量靠左，把宽度让给文件名 */
 .sc-list .file-row .file-dir {
   display: none;
 }
 
 .sc-list .file-row {
-  padding: 3px 0px;
-  gap: 6px;
+  padding: 2px 4px;
+  gap: 5px;
 }
 
 .sc-list .dir-row {
-  padding-right: 8px;
+  padding-right: 4px;
 }
 
 .sc-foot {
@@ -1034,7 +1080,7 @@ button.icon:hover {
 }
 
 .sc-foot .sel-stat {
-  padding: 4px 0px 2px;
+  padding: 4px 4px 0;
 }
 
 .sc-foot .message {
@@ -1042,18 +1088,858 @@ button.icon:hover {
   min-height: 56px;
   max-height: 40vh;
   font-size: 12px;
-  padding: 5px 0px;
+  padding: 6px 4px;
 }
 
 .sc-actions {
   display: flex;
   align-items: center;
   gap: 8px;
-  padding: 4px 8px 8px;
+  padding: 6px 4px;
   flex-wrap: wrap;
 }
 
 .sc-actions button.primary {
   flex: none;
   padding: 4px 16px;
+}
+
+/* ============ 合并侧边栏（提交 / 分支 / 暂存 标签切换） ============ */
+
+.side-tabs {
+  display: flex;
+  flex: none;
+  border-bottom: 1px solid var(--border);
+  background: var(--bg);
+}
+
+.side-tab {
+  flex: 1;
+  padding: 6px 4px;
+  border: none;
+  border-bottom: 2px solid transparent;
+  background: none;
+  color: var(--fg);
+  opacity: 0.7;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.side-tab:hover {
+  opacity: 0.95;
+  background: color-mix(in srgb, var(--fg) 6%, transparent);
+}
+
+.side-tab.active {
+  opacity: 1;
+  border-bottom-color: var(--focus);
+  font-weight: 600;
+}
+
+.side-body {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+}
+
+.side-pane {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.side-pane[hidden] {
+  display: none;
+}
+
+/* 子面板的外框负边距（对齐 Claude Code 风格）需让出标签栏：整体向内收 */
+.side-pane .sidebar-commit {
+  margin-left: 0;
+  margin-right: 0;
+  padding: 0 10px;
+  box-sizing: border-box;
+}
+
+.side-pane .br-view {
+  padding: 0 10px;
+  box-sizing: border-box;
+}
+
+/* ============ 侧边栏 Stash（暂存）标签页 ============ */
+
+.stash-sidebar {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+}
+
+.ss-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 10px;
+  border-bottom: 1px solid var(--border);
+  flex-wrap: wrap;
+}
+
+.ss-head .flex {
+  flex: 1;
+}
+
+.ss-count {
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.ss-list {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  border-bottom: 1px solid var(--border);
+}
+
+.ss-row {
+  padding: 5px 10px;
+  border-bottom: 1px solid color-mix(in srgb, var(--border) 60%, transparent);
+  cursor: pointer;
+}
+
+.ss-row:hover {
+  background: color-mix(in srgb, var(--fg) 5%, transparent);
+}
+
+.ss-row.active {
+  background: color-mix(in srgb, var(--focus) 16%, transparent);
+}
+
+/* 第一行固定两列（stash 引用 | 标题），保证所有行列位对齐、长标题省略不撑破 */
+.ss-line1 {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 6px;
+  align-items: baseline;
+  min-width: 0;
+}
+
+.ss-hash {
+  flex: none;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 11px;
+  color: var(--focus);
+}
+
+.ss-msg {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 12px;
+}
+
+.ss-line2 {
+  display: flex;
+  gap: 8px;
+  margin-top: 2px;
+  color: var(--muted);
+  font-size: 11px;
+  min-width: 0;
+}
+
+.ss-branch {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ss-date {
+  flex: none;
+  margin-left: auto;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+}
+
+/* 底部提示：查看差异请到主窗口 */
+.ss-hint {
+  flex: none;
+  padding: 6px 10px;
+  font-size: 11px;
+  color: var(--muted);
+  text-align: center;
+  border-top: 1px solid var(--border);
+}
+
+.ss-acts {
+  display: flex;
+  gap: 6px;
+  margin-top: 5px;
+}
+
+.ss-acts button {
+  flex: none;
+}
+
+.ss-acts button.danger {
+  color: #d23;
+}
+
+.ss-diff {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.ss-diff-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 10px;
+  font-size: 11px;
+  color: var(--muted);
+  border-bottom: 1px solid var(--border);
+}
+
+.ss-diff-head .diff-stat {
+  margin-left: auto;
+}
+
+.ss-diff .diff-view {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  padding: 4px 8px;
+}
+
+/* ============ 分支行（本地分支三列：当前标记 | 提交号 | 分支名） ============ */
+
+.br-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 6px;
+  border-radius: 4px;
+  cursor: pointer;
+  min-width: 0;
+}
+
+.br-row:hover {
+  background: color-mix(in srgb, var(--fg) 6%, transparent);
+}
+
+.br-row.current {
+  font-weight: 600;
+  background: color-mix(in srgb, var(--focus) 14%, transparent);
+}
+
+/* 本地分支：固定三列布局，分支名过长以 … 省略 */
+.br-row.br-local {
+  display: grid;
+  grid-template-columns: 14px 56px 1fr;
+  gap: 6px;
+  align-items: center;
+}
+
+.br-check {
+  flex: none;
+  text-align: center;
+  color: var(--focus);
+  font-weight: 700;
+}
+
+.br-local .br-check {
+  width: 14px;
+}
+
+.br-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.br-hash {
+  flex: none;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 11px;
+  color: var(--muted);
+}
+
+.br-ab {
+  flex: none;
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.br-row .flex {
+  flex: 1;
+  min-width: 0;
+}
+
+/* ============ 分支视图骨架（自 0.3.19 构建产物恢复；0.3.21 起标题行改图标按钮） ============ */
+
+.br-view {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+}
+
+.br-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 0;
+  border-bottom: 1px solid var(--border);
+}
+
+.br-head .flex {
+  flex: 1;
+  min-width: 0;
+}
+
+.br-cur {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  min-width: 0;
+  font-weight: 600;
+}
+
+.br-cur-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.br-view .filter {
+  margin: 0 0 6px;
+}
+
+.br-groups {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+}
+
+.br-ghead {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 0;
+  cursor: pointer;
+  font-weight: 600;
+  border-bottom: 1px solid var(--border);
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  background: var(--bg);
+}
+
+.br-ghead .flex {
+  flex: 1;
+  min-width: 0;
+}
+
+.br-ghead .count,
+.br-subhead .count {
+  color: var(--muted);
+  font-weight: 400;
+}
+
+.br-ghead .twisty,
+.br-subhead .twisty {
+  flex: none;
+  width: 12px;
+  color: var(--muted);
+}
+
+.br-subhead {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 0 3px 6px;
+  cursor: pointer;
+  color: var(--muted);
+}
+
+.br-sub-name {
+  color: var(--fg);
+}
+
+.br-rem {
+  display: block;
+  padding: 4px 0 4px 6px;
+  cursor: default;
+}
+
+.br-rem-main {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.br-url {
+  color: var(--muted);
+  font-size: 11px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.br-url.push {
+  opacity: 0.9;
+}
+
+/* 图标按钮（拉取/推送/刷新 + 分组标题行右侧的新建分支/添加远程仓） */
+button.mini.icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  padding: 2px 5px;
+  background: none;
+  color: var(--fg);
+  opacity: 0.85;
+  cursor: pointer;
+}
+
+button.mini.icon:hover {
+  background: var(--hover);
+  opacity: 1;
+}
+
+button.mini.icon svg {
+  display: block;
+}
+
+/* 分组标题行右侧的图标按钮（本地分支→新建分支，远程仓库→添加远程仓） */
+.br-ghead .ghead-btn {
+  margin-left: 0;
+}
+
+/* ============ Stash 三列布局（主窗口面板：列表 | 变更文件 | 差异） ============ */
+
+.stash-split .pane.mid {
+  width: 240px;
+  min-width: 160px;
+  border-right: 1px solid var(--border);
+  resize: horizontal;
+  overflow: hidden;
+}
+
+/* ============ Webview 内模态输入框（替代 window.prompt） ============ */
+
+.modal-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 300;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(0, 0, 0, 0.35);
+}
+
+.modal {
+  width: 340px;
+  max-width: 80vw;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.4);
+  padding: 12px;
+}
+
+.modal-text {
+  font-size: 12px;
+  margin-bottom: 8px;
+  white-space: pre-wrap;
+  word-break: break-all;
+}
+
+.modal-input {
+  width: 100%;
+  box-sizing: border-box;
+  font-family: inherit;
+  font-size: 12px;
+  padding: 4px 8px;
+  background: var(--input-bg);
+  color: var(--input-fg);
+  border: 1px solid var(--input-border);
+  border-radius: 2px;
+  margin-bottom: 10px;
+}
+
+.modal-input:focus {
+  outline: 1px solid var(--focus);
+}
+
+.modal-btns {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+
+/* ---------- 侧边栏分支视图（IDEA Branches 风格） ---------- */
+.br-view {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+}
+
+.br-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 0px;
+  border-bottom: 1px solid var(--border);
+}
+
+.br-cur {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  min-width: 0;
+  font-weight: 600;
+}
+
+.br-cur-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.br-ab {
+  flex: none;
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.br-actions {
+  display: flex;
+  gap: 6px;
+  padding: 6px 0px;
+}
+
+.br-actions button {
+  flex: none;
+}
+
+.br-view .filter {
+  margin: 0 0px 6px;
+}
+
+.br-groups {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+}
+
+.br-ghead {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 0px;
+  cursor: pointer;
+  font-weight: 600;
+  border-bottom: 1px solid var(--border);
+  position: sticky;
+  top: 0;
+  background: var(--bg);
+}
+
+.br-ghead .count,
+.br-subhead .count {
+  color: var(--muted);
+  font-weight: 400;
+}
+
+.br-ghead .twisty,
+.br-subhead .twisty {
+  flex: none;
+  width: 12px;
+  color: var(--muted);
+}
+
+.br-subhead {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 0px 3px 6px;
+  cursor: pointer;
+  color: var(--muted);
+}
+
+.br-sub-name {
+  color: var(--fg);
+}
+
+.br-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 0px 3px 6px;
+  cursor: pointer;
+  border-radius: 3px;
+}
+
+.br-row:hover {
+  background: var(--hover);
+}
+
+.br-row.current {
+  font-weight: 600;
+}
+
+.br-row.current .br-name {
+  color: var(--focus);
+}
+
+.br-check {
+  flex: none;
+  width: 12px;
+  color: var(--focus);
+}
+
+.br-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.br-name.muted {
+  color: var(--muted);
+}
+
+.br-hash {
+  flex: none;
+  color: var(--muted);
+  font-size: 11px;
+}
+
+/* 远程行：名称 + 地址两行 */
+.br-rem {
+  display: block;
+  padding: 4px 0px 4px 6px;
+  cursor: default;
+}
+
+.br-rem-main {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.br-url {
+  color: var(--muted);
+  font-size: 11px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.br-url.push {
+  opacity: 0.9;
+}
+
+.br-add .br-name {
+  font-size: 12px;
+}
+
+button.mini.icon {
+  padding: 1px 5px;
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+/* ============ 合并侧边栏（提交 / 分支 / 暂存 标签切换） ============ */
+
+.side-tabs {
+  display: flex;
+  flex: none;
+  border-bottom: 1px solid var(--border);
+  background: var(--bg);
+}
+
+.side-tab {
+  flex: 1;
+  padding: 6px 4px;
+  border: none;
+  border-bottom: 2px solid transparent;
+  background: none;
+  color: var(--fg);
+  opacity: 0.7;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.side-tab:hover {
+  opacity: 0.95;
+  background: color-mix(in srgb, var(--fg) 6%, transparent);
+}
+
+.side-tab.active {
+  opacity: 1;
+  border-bottom-color: var(--focus);
+  font-weight: 600;
+}
+
+.side-body {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+}
+
+.side-pane {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.side-pane[hidden] {
+  display: none;
+}
+
+/* 三个子面板的外框负边距（对齐 Claude Code 风格）需让出标签栏：整体再向内收 */
+.side-pane .sidebar-commit {
+  margin-left: 0;
+  margin-right: 0;
+  padding: 0 10px;
+  box-sizing: border-box;
+}
+
+.side-pane .br-view {
+  padding: 0 10px;
+  box-sizing: border-box;
+}
+
+/* ============ 侧边栏 Stash（暂存）标签页 ============ */
+
+.stash-sidebar {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+}
+
+.ss-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 10px;
+  border-bottom: 1px solid var(--border);
+  flex-wrap: wrap;
+}
+
+.ss-head .flex {
+  flex: 1;
+}
+
+.ss-count {
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.ss-list {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  border-bottom: 1px solid var(--border);
+}
+
+.ss-row {
+  padding: 5px 10px;
+  border-bottom: 1px solid color-mix(in srgb, var(--border) 60%, transparent);
+  cursor: pointer;
+}
+
+.ss-row:hover {
+  background: color-mix(in srgb, var(--fg) 5%, transparent);
+}
+
+.ss-row.active {
+  background: color-mix(in srgb, var(--focus) 16%, transparent);
+}
+
+.ss-line1 {
+  display: flex;
+  gap: 6px;
+  align-items: baseline;
+  min-width: 0;
+}
+
+.ss-hash {
+  flex: none;
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--accent, var(--focus));
+}
+
+.ss-msg {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 12px;
+}
+
+.ss-line2 {
+  display: flex;
+  gap: 8px;
+  margin-top: 2px;
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.ss-branch {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ss-acts {
+  display: flex;
+  gap: 6px;
+  margin-top: 5px;
+}
+
+.ss-acts button {
+  flex: none;
+}
+
+.ss-acts button.danger {
+  color: var(--danger, #d23);
+}
+
+.ss-diff {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.ss-diff-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 10px;
+  font-size: 11px;
+  color: var(--muted);
+  border-bottom: 1px solid var(--border);
+}
+
+.ss-diff-head .diff-stat {
+  margin-left: auto;
+}
+
+.ss-diff .diff-view {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  padding: 4px 8px;
 }

@@ -1,11 +1,12 @@
 import * as vscode from 'vscode';
 import * as fs from 'fs';
+import * as path from 'path';
 import { GitRunner } from '../git/GitRunner';
 import { GitService } from '../git/GitService';
 import { BranchOps } from '../git/BranchOps';
 import { RepositoryStore } from '../core/RepositoryStore';
 import { RpcRouter } from '../rpc/Router';
-import { absPathIn, relPathIn } from '../core/paths';
+import { absPathIn, relPathIn, normalizeFsPath } from '../core/paths';
 import { TgBlobProvider } from './GitBlobProvider';
 import { TGIT_BLOB_SCHEME, blobUriQuery } from '../core/blobUri';
 import {
@@ -14,10 +15,12 @@ import {
   WebviewView,
   PanelMode,
   StatusViewMode,
+  SidebarTab,
 } from '../../../shared/protocol';
 
 const VIEW_TITLES: Record<WebviewView, string> = {
   commit: '提交 (Commit) - TurtleGit',
+  sidebar: 'TurtleGit',
   log: '显示日志 (Show Log) - TurtleGit',
   diff: '比较差异 (Diff) - TurtleGit',
   graph: '版本分支图 (Revision Graph) - TurtleGit',
@@ -156,6 +159,14 @@ export class PanelManager {
     this.openPanel('stash', repoRoot, {}, 'embedded');
   }
 
+  /**
+   * 侧边栏「查看 stash」入口：在主窗口打开 Stash 管理面板并预选指定 stash。
+   * repoRoot 由侧边栏直接给出（已解析），无需再猜。
+   */
+  openStashForRepo(repoRoot: string, stashRef?: string): void {
+    this.openPanel('stash', repoRoot, stashRef ? { stashRef } : {}, 'embedded');
+  }
+
   /** 打开 Blame 视图。 */
   async openBlame(fsPath: string): Promise<void> {
     const repoRoot = await this.resolveRepoRoot(fsPath);
@@ -169,6 +180,12 @@ export class PanelManager {
       return;
     }
     this.openPanel('blame', repoRoot, { paths: [rel] }, 'embedded');
+  }
+
+  /** 让指定侧边栏 webview 重新拉取数据（不触发仓库刷新，仅通知 UI 重载） */
+  refreshSidebar(id: string): void {
+    const sink = this.sidebarSinks.get(id);
+    if (sink) void sink.webview.postMessage({ kind: 'event', type: 'reload', payload: {} });
   }
 
   /** 命令面板 / 侧边栏标题栏"刷新"：刷新仓库并通知侧边栏重新拉取 */
@@ -204,12 +221,24 @@ export class PanelManager {
   }
 
   /** 切换侧边栏 webview 绑定的仓库（并推送新 init 让 UI 重建） */
-  setSidebarRepo(id: string, view: WebviewView, repoRoot: string, paths?: string[]): void {
+  setSidebarRepo(
+    id: string,
+    view: WebviewView,
+    repoRoot: string,
+    opts: { paths?: string[]; tab?: WebviewInit['tab'] } = {},
+  ): void {
     const sink = this.sidebarSinks.get(id);
     if (!sink) return;
     sink.repoRoot = repoRoot;
-    const init = this.buildInit(view, repoRoot, { paths }, 'embedded', true);
+    const init = this.buildInit(view, repoRoot, opts, 'embedded', true);
     void sink.webview.postMessage({ kind: 'event', type: 'init', payload: init });
+  }
+
+  /** 仅切换合并侧边栏的标签页（不重建视图，保留已填内容） */
+  switchSidebarTab(tab: WebviewInit['tab']): void {
+    const sink = this.sidebarSinks.get('turtlegit.sidebarView');
+    if (!sink) return;
+    void sink.webview.postMessage({ kind: 'event', type: 'sidebar:tab', payload: { tab } });
   }
 
   private async onSidebarMessage(id: string, msg: unknown): Promise<void> {
@@ -236,7 +265,12 @@ export class PanelManager {
   buildInitFor(
     view: WebviewView,
     repoRoot: string,
-    opts: { paths?: string[]; filterPath?: string; diff?: WebviewInit['diff'] } = {},
+    opts: {
+      paths?: string[];
+      filterPath?: string;
+      diff?: WebviewInit['diff'];
+      tab?: WebviewInit['tab'];
+    } = {},
     sidebar = false,
   ): WebviewInit {
     return this.buildInit(view, repoRoot, opts, 'embedded', sidebar);
@@ -356,7 +390,7 @@ export class PanelManager {
   private async openPanel(
     view: WebviewView,
     repoRoot: string,
-    opts: { paths?: string[]; filterPath?: string; diff?: WebviewInit['diff'] },
+    opts: { paths?: string[]; filterPath?: string; diff?: WebviewInit['diff']; stashRef?: string },
     modeOverride?: PanelMode,
   ): Promise<vscode.WebviewPanel> {
     const mode = modeOverride ?? this.panelMode;
@@ -418,7 +452,13 @@ export class PanelManager {
   private buildInit(
     view: WebviewView,
     repoRoot: string,
-    opts: { paths?: string[]; filterPath?: string; diff?: WebviewInit['diff'] },
+    opts: {
+      paths?: string[];
+      filterPath?: string;
+      diff?: WebviewInit['diff'];
+      stashRef?: string;
+      tab?: WebviewInit['tab'];
+    },
     mode: PanelMode = this.panelMode,
     sidebar = false,
   ): WebviewInit {
@@ -428,10 +468,12 @@ export class PanelManager {
       paths: opts.paths,
       filterPath: opts.filterPath,
       diff: opts.diff,
+      stashRef: opts.stashRef,
       statusViewMode: this.context.globalState.get<StatusViewMode>('turtlegit.viewMode') ?? 'list',
       panelMode: mode,
       floating: this.floatingViews.has(view),
       sidebar,
+      tab: opts.tab,
     };
   }
 
@@ -536,6 +578,9 @@ export class PanelManager {
   private registerHandlers(): void {
     this.router.register('repo:list', () => this.store.repoInfos());
     this.router.register('repo:info', ({ repoRoot }) => this.store.branch(repoRoot));
+    this.router.register('repo:pull', ({ repoRoot }) => this.pull(repoRoot));
+    this.router.register('repo:push', ({ repoRoot }) => this.push(repoRoot));
+    this.router.register('repo:identity', ({ repoRoot }) => this.git.identity(repoRoot));
 
     this.router.register('status:list', async ({ repoRoot }) => {
       await this.store.refresh(repoRoot);
@@ -593,7 +638,14 @@ export class PanelManager {
         () => this.git.commit(req),
       );
       await this.store.touch(req.repoRoot);
-      return result;
+      if (!req.pushAfter) return result;
+      // 提交后推送：推送失败不回滚已完成的提交，把结果回传给界面提示
+      try {
+        const pushMessage = await this.push(req.repoRoot);
+        return { hash: result.hash, pushed: true, pushMessage };
+      } catch (err) {
+        return { hash: result.hash, pushed: false, pushMessage: String(err) };
+      }
     });
 
     this.router.register('log:list', (query) => this.git.log(query));
@@ -621,6 +673,36 @@ export class PanelManager {
     });
     this.router.register('branch:checkout', async ({ repoRoot, ref }) => {
       await this.withNotify(`正在切换到 ${ref}…`, () => this.ops.checkout(repoRoot, ref));
+      await this.store.touch(repoRoot);
+    });
+    this.router.register('branch:checkoutRemote', async ({ repoRoot, name }) => {
+      const r = await this.withNotify(`正在检出 ${name}…`, () =>
+        this.ops.checkoutRemote(repoRoot, name),
+      );
+      await this.store.touch(repoRoot);
+      return r;
+    });
+    this.router.register('branch:deleteRemote', async ({ repoRoot, remote, branch }) => {
+      await this.withNotify(`正在删除远程分支 ${remote}/${branch}…`, () =>
+        this.ops.deleteRemoteBranch(repoRoot, remote, branch),
+      );
+      await this.store.touch(repoRoot);
+    });
+    this.router.register('remote:list', ({ repoRoot }) => this.ops.remotes(repoRoot));
+    this.router.register('remote:add', async ({ repoRoot, name, url }) => {
+      await this.withNotify(`正在添加远程 ${name}…`, () =>
+        this.ops.addRemote(repoRoot, name, url),
+      );
+      await this.store.touch(repoRoot);
+    });
+    this.router.register('remote:remove', async ({ repoRoot, name }) => {
+      await this.withNotify(`正在删除远程 ${name}…`, () => this.ops.removeRemote(repoRoot, name));
+      await this.store.touch(repoRoot);
+    });
+    this.router.register('remote:setUrl', async ({ repoRoot, name, url, push }) => {
+      await this.withNotify(`正在修改 ${name} 的${push ? '推送' : '拉取'}地址…`, () =>
+        this.ops.setRemoteUrl(repoRoot, name, url, push === true),
+      );
       await this.store.touch(repoRoot);
     });
 
@@ -736,8 +818,11 @@ export class PanelManager {
       await this.openFileInEditor(repoRoot, p);
     });
     this.router.register('ui:revealInExplorer', async ({ repoRoot, path: p }) => {
-      const uri = vscode.Uri.file(absPathIn(repoRoot, p));
+      const uri = vscode.Uri.file(path.join(repoRoot, p));
       await vscode.commands.executeCommand('revealInExplorer', uri);
+    });
+    this.router.register('ui:openStash', async ({ repoRoot, ref }) => {
+      this.openStashForRepo(repoRoot, ref);
     });
   }
 
@@ -764,11 +849,22 @@ export class PanelManager {
     if (!range && !against) {
       const file = this.store.fileStatus(repoRoot, filePath);
       if (file?.untracked) {
-        // 未跟踪文件没有 index 对象：自构造 patch（diff --no-index 在 Windows 上 NUL 路径不可达）
-        return this.git.untrackedPatch(repoRoot, filePath);
+        return this.diffNoIndex(repoRoot, filePath);
       }
     }
     return this.git.diffPatch(repoRoot, filePath, staged, against, range);
+  }
+
+  private async diffNoIndex(repoRoot: string, filePath: string): Promise<string> {
+    const abs = path.join(repoRoot, filePath);
+    const { GitRunner } = await import('../git/GitRunner');
+    const runner = new GitRunner('git');
+    const r = await runner.run(
+      ['diff', '--no-color', '--no-index', '-U3', '--', process.platform === 'win32' ? '\\\\.\\nul' : '/dev/null', abs],
+      { cwd: repoRoot, timeoutMs: 30000 },
+    );
+    // git diff --no-index 退出码为 1 表示有差异，属正常
+    return r.stdout;
   }
 
   private async onMessage(

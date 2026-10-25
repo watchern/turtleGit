@@ -14,6 +14,68 @@ export interface GraphNode {
   parentLanes: number[];
 }
 
+export interface GraphEdge {
+  fromRow: number;
+  fromLane: number;
+  /** 父提交所在行；continues 为 true 时此值无意义（画到图底部） */
+  toRow: number;
+  toLane: number;
+  /** 父提交不在当前列表内（超出已加载页/未在结果中）→ 线延伸到底部 */
+  continues: boolean;
+}
+
+/**
+ * 生成连线：按父提交的**真实行号**连线，而不是想当然地连到下一行。
+ * 拓扑序里父提交常常隔着若干行，连到下一行会让线断在半空、节点没有入边（图看起来错位）。
+ */
+export function buildEdges(nodes: GraphNode[]): GraphEdge[] {
+  const rowOf = new Map<string, number>();
+  nodes.forEach((n, i) => rowOf.set(n.commit.hash, i));
+  const edges: GraphEdge[] = [];
+  nodes.forEach((node, row) => {
+    node.commit.parents.forEach((parent, i) => {
+      const toLane = node.parentLanes[i] ?? node.lane;
+      const toRow = rowOf.get(parent);
+      if (toRow === undefined) {
+        // 父提交不在列表内（未加载/被过滤）：向下延伸到底部
+        edges.push({ fromRow: row, fromLane: node.lane, toRow: nodes.length, toLane, continues: true });
+      } else if (toRow > row) {
+        edges.push({ fromRow: row, fromLane: node.lane, toRow, toLane, continues: false });
+      }
+      // toRow < row 在拓扑序下不应出现，忽略
+    });
+  });
+  return edges;
+}
+
+/**
+ * lane 配色：固定调色板（深浅主题下都可见）。
+ * 早先用 `fill: var(--bg)`（编辑器背景色）画节点——暗黑主题下就是近黑色实心点。
+ */
+const LANE_COLORS = [
+  '#e06c75',
+  '#61afef',
+  '#98c379',
+  '#e5c07b',
+  '#c678dd',
+  '#56b6c2',
+  '#d19a66',
+  '#be5046',
+];
+
+export function laneColor(lane: number): string {
+  return LANE_COLORS[lane % LANE_COLORS.length];
+}
+
+/** 徽标宽度估算：中/日/韩等全角字符按 2 个单位宽算，避免文字溢出矩形 */
+export function badgeWidth(text: string): number {
+  let units = 0;
+  for (const ch of text) {
+    units += /[\u3000-\u9fff\uff00-\uffef]/.test(ch) ? 2 : 1;
+  }
+  return units * 6.2 + 12;
+}
+
 export function computeLanes(commits: CommitInfo[]): GraphNode[] {
   /** lanes[i] = 该 lane 正在等待的 commit hash，null 表示空闲 */
   const lanes: (string | null)[] = [];

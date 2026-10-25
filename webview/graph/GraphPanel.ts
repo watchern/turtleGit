@@ -2,13 +2,14 @@ import { RpcClient } from '../bridge';
 import { renderDiff, patchStat } from '../diff/DiffRenderer';
 import { bindDiffInteractions } from '../diff/expander';
 import { toast, promptValue, showMenuAt, escapeHtml } from '../ui/dialogs';
-import { computeLanes, refBadges, GraphNode } from './lanes';
+import { computeLanes, refBadges, buildEdges, laneColor, badgeWidth, GraphNode } from './lanes';
 import { CommitFile, CommitInfo } from '../../shared/protocol';
 
 const ROW_H = 26;
 const COL_W = 18;
-const NODE_R = 4.5;
-const GRAPH_W = 260;
+const NODE_R = 5;
+/** hash 文本列（等宽 11px，shortHash 7 字符） */
+const HASH_W = 50;
 
 /**
  * 版本分支图：复刻 TortoiseGit Revision Graph。
@@ -145,67 +146,80 @@ export class GraphPanel {
   // ---------- 图渲染 ----------
 
   private renderGraph(): void {
-    const height = this.nodes.length * ROW_H + 20;
-    const maxLane = this.nodes.reduce((m, n) => Math.max(m, n.lane, ...n.parentLanes), 0);
-    const graphWidth = Math.min(GRAPH_W, (maxLane + 2) * COL_W + 40);
+    const height = this.nodes.length * ROW_H + 10;
+    const laneCount =
+      this.nodes.reduce((m, n) => Math.max(m, n.lane, ...n.parentLanes), 0) + 1;
+    // 列布局：lane 区 → hash 文本列 → refs 徽标（从左往右排，不回头、不重叠）
+    const textX = laneCount * COL_W + 6;
+    const badgeStart = textX + HASH_W + 8;
+    const rowEnd = this.nodes.map((n) => {
+      let x = badgeStart;
+      for (const b of refBadges(n.commit.refs)) x += badgeWidth(b.text) + 4;
+      return Math.max(textX + HASH_W, x - 4);
+    });
+    const contentW = rowEnd.reduce((m, w) => Math.max(m, w), 0);
+    const paneW = this.graphEl.parentElement?.clientWidth ?? 0;
+    const graphWidth = Math.max(contentW + 8, paneW - 6, 140);
     const parts: string[] = [];
 
-    // 连线（先画线，节点覆盖其上）
-    this.nodes.forEach((node, row) => {
-      const y = row * ROW_H + ROW_H / 2;
-      const x = node.lane * COL_W + COL_W / 2;
-      node.parentLanes.forEach((pl) => {
-        const px = pl * COL_W + COL_W / 2;
-        if (pl === node.lane) {
-          parts.push(
-            `<line x1="${x}" y1="${y}" x2="${px}" y2="${y + ROW_H}" class="edge"/>`,
-          );
-        } else {
-          const midY = y + ROW_H / 2;
-          parts.push(
-            `<path d="M ${x} ${y} C ${x} ${midY}, ${px} ${midY}, ${px} ${y + ROW_H}" fill="none" class="edge"/>`,
-          );
-        }
-      });
-      // 经过本行其它 lane 的"路过"竖线（其 parent 尚未出现时向下延伸）
-      node.parentLanes.forEach((pl) => {
-        if (pl === node.lane) return;
-        const px = pl * COL_W + COL_W / 2;
-        const parentHash = node.commit.parents[node.parentLanes.indexOf(pl)];
-        if (parentHash && !this.commits.has(parentHash)) {
-          parts.push(
-            `<line x1="${px}" y1="${y}" x2="${px}" y2="${y + ROW_H}" class="edge"/>`,
-          );
-        }
-      });
-    });
+    // 选中行高亮：半透明焦点色（深浅主题都不会糊成一块黑）
+    const selRow = this.selectedHash
+      ? this.nodes.findIndex((n) => n.commit.hash === this.selectedHash)
+      : -1;
+    if (selRow >= 0) {
+      parts.push(
+        `<rect class="row-sel" x="1" y="${selRow * ROW_H + 1}" width="${graphWidth - 2}" height="${ROW_H - 2}" rx="3"/>`,
+      );
+    }
+
+    // 连线：连到父提交的真实行（拓扑序里父提交可能隔着多行）
+    for (const e of buildEdges(this.nodes)) {
+      const x1 = e.fromLane * COL_W + COL_W / 2;
+      const y1 = e.fromRow * ROW_H + ROW_H / 2;
+      const x2 = e.toLane * COL_W + COL_W / 2;
+      const y2 = e.continues ? height - 4 : e.toRow * ROW_H + ROW_H / 2;
+      if (e.fromLane === e.toLane) {
+        parts.push(`<line x1="${x1}" y1="${y1}" x2="${x2}" y2="${y2}" class="edge"/>`);
+        continue;
+      }
+      const dy = y2 - y1;
+      if (dy <= ROW_H * 1.2) {
+        // 相邻行：对称 S 形
+        const m = y1 + dy / 2;
+        parts.push(`<path d="M ${x1} ${y1} C ${x1} ${m}, ${x2} ${m}, ${x2} ${y2}" class="edge"/>`);
+      } else {
+        // 隔行：先在本 lane 竖直下行，接近父行时平滑拐入父 lane（gitk 风格）
+        const k = y2 - ROW_H * 0.9;
+        const d = ROW_H * 0.45;
+        parts.push(
+          `<path d="M ${x1} ${y1} L ${x1} ${k} C ${x1} ${k + d}, ${x2} ${y2 - d}, ${x2} ${y2}" class="edge"/>`,
+        );
+      }
+    }
 
     // 节点与行
     this.nodes.forEach((node, row) => {
       const y = row * ROW_H + ROW_H / 2;
       const x = node.lane * COL_W + COL_W / 2;
       const isHead = node.commit.refs.some((r) => r === 'HEAD' || r.startsWith('HEAD ->'));
+      const selected = this.selectedHash === node.commit.hash;
+      let bx = badgeStart;
+      const badgesHtml: string[] = [];
+      for (const b of refBadges(node.commit.refs)) {
+        const w = badgeWidth(b.text);
+        badgesHtml.push(
+          `<g class="badge-${b.kind}"><rect x="${bx}" y="${y - 8}" width="${w}" height="16" rx="8"/><text x="${bx + w / 2}" y="${y + 4}" text-anchor="middle">${this.esc(b.text)}</text></g>`,
+        );
+        bx += w + 4;
+      }
       parts.push(
-        `<g class="gnode${this.selectedHash === node.commit.hash ? ' selected' : ''}" data-hash="${node.commit.hash}" data-row="${row}">
-  <circle cx="${x}" cy="${y}" r="${NODE_R}" class="${isHead ? 'node head' : 'node'}"/>
-  <text x="${x + 10}" y="${y + 4}" class="g-hash">${node.commit.shortHash}</text>
+        `<g class="gnode${selected ? ' selected' : ''}" data-hash="${node.commit.hash}" data-row="${row}">
+  <rect class="row-hit" x="0" y="${row * ROW_H}" width="${graphWidth}" height="${ROW_H}"/>
+  <circle cx="${x}" cy="${y}" r="${NODE_R}" class="${isHead ? 'node head' : 'node'}" fill="${laneColor(node.lane)}"/>
+  <text x="${textX}" y="${y + 4}" class="g-hash">${node.commit.shortHash}</text>
+  ${badgesHtml.join('')}
 </g>`,
       );
-      const badges = refBadges(node.commit.refs);
-      if (badges.length) {
-        let bx = graphWidth - 6;
-        // 徽标从右往左排
-        const badgesHtml: string[] = [];
-        for (const b of badges) {
-          const w = b.text.length * 7 + 12;
-          bx -= w;
-          badgesHtml.push(
-            `<g class="badge-${b.kind}"><rect x="${bx}" y="${y - 8}" width="${w}" height="16" rx="8"/><text x="${bx + w / 2}" y="${y + 4}" text-anchor="middle">${this.esc(b.text)}</text></g>`,
-          );
-          bx -= 4;
-        }
-        parts.push(...badgesHtml);
-      }
     });
 
     this.graphEl.innerHTML = `<svg width="${graphWidth}" height="${height}" viewBox="0 0 ${graphWidth} ${height}" class="graph-svg">${parts.join('')}</svg>`;
@@ -348,7 +362,7 @@ ${refs}
           toast(`已检出 ${short}（分离头指针）`);
           break;
         case 'branch': {
-          const name = promptValue('新分支名称：', `branch-${short}`);
+          const name = await promptValue('新分支名称：', `branch-${short}`);
           if (name) {
             await this.client.send('branch:create', {
               repoRoot: this.repoRoot,
@@ -361,7 +375,7 @@ ${refs}
           break;
         }
         case 'tag': {
-          const name = promptValue('标签名称：', `v-${short}`);
+          const name = await promptValue('标签名称：', `v-${short}`);
           if (name) {
             await this.client.send('tag:create', { repoRoot: this.repoRoot, name, ref: hash });
             toast(`已创建标签 ${name}`);

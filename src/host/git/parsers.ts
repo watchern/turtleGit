@@ -200,3 +200,33 @@ export function parseCommitFiles(
   }
   return files;
 }
+
+
+/** 签署人身份解析结果（对应 `Signed-off-by: 姓名 <邮箱>`） */
+export interface SignOffIdentity {
+  name: string;
+  email: string;
+}
+
+/**
+ * 解析用户填写的签署人，接受三种写法：
+ *   "张三 <zhangsan@example.com>"  → { name: '张三', email: 'zhangsan@example.com' }
+ *   "张三"                          → { name: '张三', email: '' }（邮箱沿用仓库配置）
+ *   "zhangsan@example.com"         → { name: '', email: '...' }（姓名沿用仓库配置）
+ * 空白输入返回 null（调用方退回 `git commit -s` 的默认身份）。
+ */
+export function parseSignOffIdentity(text: string): SignOffIdentity | null {
+  const s = (text ?? '').replace(/[\r\n\t]+/g, ' ').trim();
+  if (!s) return null;
+  const m = /^(.*?)\s*<([^<>]*)>\s*$/.exec(s);
+  if (m) {
+    const name = m[1].trim();
+    const email = m[2].trim();
+    return name || email ? { name, email } : null;
+  }
+  // 纯邮箱：只覆盖 email
+  if (/^[^\s<>"']+@[^\s<>"']+$/.test(s)) return { name: '', email: s };
+  // 其余按姓名处理（去掉可能残留的尖括号，避免注入 git 配置值）
+  const name = s.replace(/[<>]/g, '').trim();
+  return name ? { name, email: '' } : null;
+}

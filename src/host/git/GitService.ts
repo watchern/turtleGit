@@ -1,15 +1,17 @@
 import * as path from 'path';
 import * as fs from 'fs';
 import { GitRunner, GitRunnerError } from './GitRunner';
-import { parseStatus, parseLog, parseCommitFiles, logFormat } from './parsers';
+import { parseStatus, parseLog, parseCommitFiles, logFormat, parseSignOffIdentity } from './parsers';
 import { normalizeFsPath, absPathIn } from '../core/paths';
 import {
   BranchInfo,
   CommitFile,
   CommitInfo,
   CommitRequest,
+  CommitResult,
   FileNumstat,
   FileStatus,
+  GitIdentity,
   LogQuery,
   RepoInfo,
 } from '../../../shared/protocol';
@@ -311,8 +313,23 @@ export class GitService {
 
   // ---------- 提交 ----------
 
-  async commit(req: CommitRequest): Promise<{ hash: string }> {
-    const { repoRoot, message, files, amend, signOff, noVerify } = req;
+  /**
+   * 读取 git 身份（user.name / user.email）。
+   * 未配置时返回空串（不抛错）——调用方用它给「签署人」输入框填默认值。
+   */
+  async identity(repoRoot: string): Promise<GitIdentity> {
+    const [nameR, emailR] = await Promise.all([
+      this.runner.run(['config', 'user.name'], { cwd: repoRoot, timeoutMs: 10000 }),
+      this.runner.run(['config', 'user.email'], { cwd: repoRoot, timeoutMs: 10000 }),
+    ]);
+    return {
+      name: nameR.code === 0 ? nameR.stdout.trim() : '',
+      email: emailR.code === 0 ? emailR.stdout.trim() : '',
+    };
+  }
+
+  async commit(req: CommitRequest): Promise<CommitResult> {
+    const { repoRoot, message, files, amend, signOff, noVerify, signOffName } = req;
 
     if (files && files.length > 0) {
       // 勾选子集提交（复刻 TortoiseGit 部分提交）：
@@ -324,7 +341,15 @@ export class GitService {
       }
     }
 
-    const args = ['commit'];
+    // 签署：默认 `git commit -s`（用 git 自己的身份）；填了签署人时改用
+    // `-c user.name/-c user.email` 覆盖本次身份——仓库没配 user.email 也能完成签署。
+    const pre: string[] = [];
+    if (signOff) {
+      const ident = signOffName ? parseSignOffIdentity(signOffName) : null;
+      if (ident?.name) pre.push('-c', `user.name=${ident.name}`);
+      if (ident?.email) pre.push('-c', `user.email=${ident.email}`);
+    }
+    const args = [...pre, 'commit'];
     if (amend) args.push('--amend');
     if (signOff) args.push('-s');
     if (noVerify) args.push('--no-verify');
@@ -452,6 +477,7 @@ export class GitService {
     return 'clean';
   }
 }
+
 
 /** 递归列出目录下的文件（仓库相对路径，正斜杠），跳过 .git 等版本控制目录 */
 function listFilesRecursive(dir: string, repoRoot: string): string[] {

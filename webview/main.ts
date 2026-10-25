@@ -3,6 +3,8 @@ import { RpcClient, decodeParams } from './bridge';
 import { bindWebviewState } from './state';
 import { CommitPanel } from './commit/CommitPanel';
 import { CommitSidebarPanel } from './commit/CommitSidebar';
+import { BranchesSidebar } from './branches/BranchesSidebar';
+import { SidebarPanel } from './sidebar/SidebarPanel';
 import { LogPanel } from './log/LogPanel';
 import { DiffPanel } from './diff/DiffPanel';
 import { GraphPanel } from './graph/GraphPanel';
@@ -29,6 +31,8 @@ let currentDisposer: (() => void) | undefined;
 
 function mount(init: WebviewInit): void {
   currentDisposer?.();
+  // 重挂载前清掉上一视图的事件订阅（保留 init），避免 DOM 销毁后仍有监听器报错
+  client.clearHandlers(['init']);
   app.innerHTML = '';
   document.body.dataset.view = init.view;
   switch (init.view) {
@@ -38,6 +42,9 @@ function mount(init: WebviewInit): void {
       } else {
         new CommitPanel(app, client, init.repoRoot, init.paths, init.statusViewMode);
       }
+      break;
+    case 'sidebar':
+      new SidebarPanel(app, client, init);
       break;
     case 'log':
       new LogPanel(app, client, init.repoRoot, init.filterPath);
@@ -49,7 +56,7 @@ function mount(init: WebviewInit): void {
       new GraphPanel(app, client, init.repoRoot);
       break;
     case 'stash':
-      new StashPanel(app, client, init.repoRoot);
+      new StashPanel(app, client, init.repoRoot, init.stashRef);
       break;
     case 'blame':
       new BlamePanel(app, client, init.repoRoot, init.paths?.[0] ?? '');

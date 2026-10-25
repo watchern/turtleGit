@@ -46,6 +46,25 @@ export class RpcClient {
     set.add(handler as (p: unknown) => void);
   }
 
+  /** 取消单个事件订阅 */
+  off(event: string, handler: (payload: never) => void): void {
+    this.handlers.get(event)?.delete(handler as (p: unknown) => void);
+  }
+
+  /**
+   * 清空所有事件订阅（重挂载视图前调用，避免上一视图的监听器在 DOM 被销毁后
+   * 仍被触发导致报错）。`except` 中的事件（如 init）会保留。
+   */
+  clearHandlers(except: string[] = []): void {
+    if (!except.length) {
+      this.handlers.clear();
+      return;
+    }
+    for (const key of [...this.handlers.keys()]) {
+      if (!except.includes(key)) this.handlers.delete(key);
+    }
+  }
+
   handleMessage(msg: unknown): void {
     const m = msg as { kind?: string; id?: number; ok?: boolean; payload?: unknown; type?: string; error?: string };
     if (m?.kind === 'response') {

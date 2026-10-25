@@ -19,6 +19,12 @@ interface CommitSidebarState {
   userTouched?: string[];
   showUntracked?: boolean;
   showIgnored?: boolean;
+  /** 签署 (Signed-off-by) 勾选 */
+  signOff?: boolean;
+  /** 签署人「姓名 <邮箱>」，留空表示用 git 身份 */
+  signOffName?: string;
+  /** 提交后自动推送 */
+  pushAfter?: boolean;
 }
 
 /**
@@ -53,6 +59,11 @@ export class CommitSidebarPanel {
   private btnCommit!: HTMLButtonElement;
   private chkAmend!: HTMLInputElement;
   private chkSignOff!: HTMLInputElement;
+  private chkPush!: HTMLInputElement;
+  private inpSignOff!: HTMLInputElement;
+  private signOffRow!: HTMLElement;
+  /** git 身份（user.name / user.email），签署人输入框的默认值 */
+  private identity: { name: string; email: string } = { name: '', email: '' };
 
   constructor(
     root: HTMLElement,
@@ -69,6 +80,23 @@ export class CommitSidebarPanel {
     this.updateModeButton();
     void this.reload(initialPaths);
     this.bindStoreEvents();
+    void this.loadIdentity();
+  }
+
+  /** 读取 git 身份，给签署人输入框填默认「姓名 <邮箱>」（用户已手工填写时不覆盖） */
+  private async loadIdentity(): Promise<void> {
+    try {
+      const id = await this.client.send('repo:identity', { repoRoot: this.repoRoot });
+      this.identity = { name: id.name ?? '', email: id.email ?? '' };
+      if (this.identity.name || this.identity.email) {
+        if (!this.inpSignOff.value.trim()) {
+          this.inpSignOff.value = `${this.identity.name} <${this.identity.email}>`.trim();
+        }
+        this.inpSignOff.placeholder = `${this.identity.name} <${this.identity.email}>`;
+      }
+    } catch {
+      /* 身份读取失败不影响提交 */
+    }
   }
 
   // ---------- UI ----------
@@ -93,8 +121,13 @@ export class CommitSidebarPanel {
     <div class="sc-actions">
       <label class="chk"><input type="checkbox" id="sc-amend"> 修订</label>
       <label class="chk"><input type="checkbox" id="sc-signoff"> 签署</label>
+      <label class="chk"><input type="checkbox" id="sc-push"> 提交后推送</label>
       <span class="flex"></span>
       <button class="primary" id="sc-commit">提交</button>
+    </div>
+    <div class="sc-signoff" id="sc-signoff-row" hidden>
+      <input type="text" id="sc-signoff-name" class="signoff-input"
+             placeholder="签署人：姓名 &lt;邮箱&gt;" title="留空则使用 git 配置的 user.name / user.email">
     </div>
   </div>
 </div>
@@ -106,6 +139,18 @@ export class CommitSidebarPanel {
     this.btnCommit = this.must('sc-commit') as HTMLButtonElement;
     this.chkAmend = this.must('sc-amend') as HTMLInputElement;
     this.chkSignOff = this.must('sc-signoff') as HTMLInputElement;
+    this.chkPush = this.must('sc-push') as HTMLInputElement;
+    this.inpSignOff = this.must('sc-signoff-name') as HTMLInputElement;
+    this.signOffRow = this.must('sc-signoff-row');
+
+    // 勾选「签署」时才显示签署人输入框
+    this.chkSignOff.addEventListener('change', () => {
+      this.signOffRow.hidden = !this.chkSignOff.checked;
+      if (this.chkSignOff.checked) this.inpSignOff.focus();
+      this.persist();
+    });
+    this.chkPush.addEventListener('change', () => this.persist());
+    this.inpSignOff.addEventListener('input', () => this.persistSoon());
 
     this.must('sc-mode').addEventListener('click', () => {
       void this.client.send('ui:setViewMode', { mode: this.viewMode === 'tree' ? 'list' : 'tree' });
@@ -186,6 +231,10 @@ export class CommitSidebarPanel {
       this.showIgnored = s.showIgnored;
       (this.must('sc-ignored') as HTMLInputElement).checked = s.showIgnored;
     }
+    if (typeof s.signOff === 'boolean') this.chkSignOff.checked = s.signOff;
+    this.signOffRow.hidden = !this.chkSignOff.checked;
+    if (typeof s.signOffName === 'string') this.inpSignOff.value = s.signOffName;
+    if (typeof s.pushAfter === 'boolean') this.chkPush.checked = s.pushAfter;
   }
 
   private persist(): void {
@@ -196,6 +245,9 @@ export class CommitSidebarPanel {
       userTouched: [...this.userTouched],
       showUntracked: this.showUntracked,
       showIgnored: this.showIgnored,
+      signOff: this.chkSignOff.checked,
+      signOffName: this.inpSignOff.value,
+      pushAfter: this.chkPush.checked,
     } satisfies CommitSidebarState);
   }
 
@@ -392,14 +444,11 @@ export class CommitSidebarPanel {
       .map((f) => {
         const badge = statusBadge(f);
         const checked = this.selected.has(f.path) ? 'checked' : '';
-        // 折叠的忽略目录路径以 / 结尾（`! node_modules/`）：先去尾斜杠再取名，显示名补回 /
-        const clean = f.path.endsWith('/') ? f.path.slice(0, -1) : f.path;
-        const base = clean.includes('/') ? clean.slice(clean.lastIndexOf('/') + 1) : clean;
-        const name = f.path.endsWith('/') ? `${base}/` : base;
-        const dir = clean.includes('/') ? clean.slice(0, clean.lastIndexOf('/')) : '';
-        return `<div class="file-row${this.activePath === f.path ? ' active' : ''}" data-path="${escAttr(f.path)}" style="padding-left:10px" title="${escAttr(f.path)}">
+        const name = f.path.includes('/') ? f.path.slice(f.path.lastIndexOf('/') + 1) : f.path;
+        const dir = f.path.includes('/') ? f.path.slice(0, f.path.lastIndexOf('/')) : '';
+        return `<div class="file-row${this.activePath === f.path ? ' active' : ''}" data-path="${escAttr(f.path)}" title="${escAttr(f.path)}">
   <input type="checkbox" class="file-check" ${checked} data-path="${escAttr(f.path)}">
-  <span class="badge ${badge.cls}" title="${escAttr(badge.title)}">${badge.text}</span>
+  <span class="badge ${badge.cls}">${badge.text}</span>
   ${this.fileStatHtml(f.path)}
   <span class="file-name">${esc(name)}</span>
   <span class="file-dir">${esc(dir)}</span>
@@ -433,7 +482,7 @@ export class CommitSidebarPanel {
         const indent = depth * 10 + 12;
         return `<div class="file-row${this.activePath === f.path ? ' active' : ''}" data-path="${escAttr(f.path)}" style="padding-left:${indent}px" title="${escAttr(f.path)}">
   <input type="checkbox" class="file-check" ${checked} data-path="${escAttr(f.path)}">
-  <span class="badge ${badge.cls}" title="${escAttr(badge.title)}">${badge.text}</span>
+  <span class="badge ${badge.cls}">${badge.text}</span>
   ${this.fileStatHtml(f.path)}
   <span class="file-name">${esc(n.label)}</span>
 </div>`;
@@ -732,13 +781,18 @@ export class CommitSidebarPanel {
         files,
         amend: this.chkAmend.checked,
         signOff: this.chkSignOff.checked,
+        signOffName: this.inpSignOff.value.trim(),
+        pushAfter: this.chkPush.checked,
       });
       this.msgEl.value = '';
       this.chkAmend.checked = false;
       this.selected.clear();
       this.userTouched.clear();
       this.clearPersistedState();
-      this.toast(`提交成功：${result.hash.slice(0, 7)}`);
+      let text = `提交成功：${result.hash.slice(0, 7)}`;
+      if (result.pushed === true) text += `（已推送：${result.pushMessage || '完成'}）`;
+      else if (result.pushed === false) text += `（推送失败：${result.pushMessage || '未知原因'}）`;
+      this.toast(text);
       await this.reload();
     } catch (err) {
       this.toast(`提交失败：${String(err)}`, true);

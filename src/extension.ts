@@ -6,14 +6,14 @@ import { FileDecorationProvider } from './host/ui/FileDecorationProvider';
 import { StatusBarManager } from './host/ui/StatusBarManager';
 import { nodeToTargets } from './host/ui/statusNodes';
 import { PanelManager } from './host/ui/PanelManager';
-import { CommitViewProvider } from './host/ui/CommitViewProvider';
+import { SidebarViewProvider } from './host/ui/SidebarViewProvider';
 import { absPathIn, relPathIn } from './host/core/paths';
 
 let store: RepositoryStore | undefined;
 let panels: PanelManager | undefined;
 let decorations: FileDecorationProvider | undefined;
 let statusBar: StatusBarManager | undefined;
-let commitView: CommitViewProvider | undefined;
+let sidebarView: SidebarViewProvider | undefined;
 
 /** 命令目标：仓库根 + 仓库相对路径 */
 type FileTarget = { repoRoot: string; path: string };
@@ -28,10 +28,10 @@ export function activate(context: vscode.ExtensionContext): void {
   store.attachBuiltinGit();
 
   panels = new PanelManager(context, git, runner, store);
-  // 提交在侧边栏内嵌视图中完成（复刻 TortoiseGit 单面板习惯，不弹独立对话框）
-  commitView = new CommitViewProvider(context, panels, store);
+  // 合并后的侧边栏（提交 / 分支 / 暂存 三标签合一，复刻 TortoiseGit 单面板习惯）
+  sidebarView = new SidebarViewProvider(context, panels, store);
   context.subscriptions.push(
-    vscode.window.registerWebviewViewProvider('turtlegit.commitView', commitView, {
+    vscode.window.registerWebviewViewProvider('turtlegit.sidebarView', sidebarView, {
       webviewOptions: { retainContextWhenHidden: true },
     }),
   );
@@ -117,8 +117,10 @@ export function activate(context: vscode.ExtensionContext): void {
     };
 
   const commands: Array<[string, (...args: unknown[]) => Promise<void> | void]> = [
-    // 提交：直接聚焦侧边栏提交视图（"在此提交…"额外预选目标文件）
-    ['turtlegit.commit', () => commitView!.show()],
+    // 提交：聚焦合并侧边栏并切到「提交」标签（"在此提交…"额外预选目标文件）
+    ['turtlegit.commit', () => sidebarView!.show(undefined, 'commit')],
+    // 分支：聚焦合并侧边栏并切到「分支」标签（切换分支 / 管理远程）
+    ['turtlegit.branches', () => sidebarView!.show(undefined, 'branches')],
     [
       'turtlegit.commitPath',
       async (...args: unknown[]): Promise<void> => {
@@ -129,7 +131,7 @@ export function activate(context: vscode.ExtensionContext): void {
           : arg instanceof vscode.Uri
             ? [arg.fsPath]
             : [];
-        await commitView!.show(paths.length ? paths : undefined);
+        await sidebarView!.show(paths.length ? paths : undefined, 'commit');
       },
     ],
     ['turtlegit.log', () => panels!.openLog()],
@@ -202,7 +204,7 @@ export function activate(context: vscode.ExtensionContext): void {
       },
     ],
     ['turtlegit.graph', () => panels!.openGraph()],
-    ['turtlegit.stash', () => panels!.openStash()],
+    ['turtlegit.stash', () => sidebarView!.show(undefined, 'stash')],
     ['turtlegit.blame', withRepoArg((p) => (p ? panels!.openBlame(p) : Promise.resolve()))],
     ['turtlegit.refresh', () => panels!.refreshAll()],
     ['turtlegit.openFloating', () => panels!.pullActiveToMain()],
@@ -279,7 +281,7 @@ export function activate(context: vscode.ExtensionContext): void {
       store?.dispose();
       panels?.dispose();
       statusBar?.dispose();
-      commitView?.dispose();
+      sidebarView?.dispose();
     },
   });
 

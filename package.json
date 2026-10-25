@@ -2,7 +2,7 @@
   "name": "turtlegit",
   "displayName": "TurtleGit - TortoiseGit 风格的跨平台 Git 增强",
   "description": "在 VSCode 中复刻 TortoiseGit 的提交、浏览、对比体验：独立浮窗对话框、提交图、按块勾选提交。纯插件实现，不依赖 TortoiseGit，Linux/macOS/Windows 通用。",
-  "version": "0.3.15",
+  "version": "0.3.21",
   "publisher": "turtlegit",
   "license": "MIT",
   "repository": {
@@ -42,7 +42,7 @@
     "onCommand:turtlegit.openFloating",
     "onCommand:turtlegit.pull",
     "onCommand:turtlegit.push",
-    "onView:turtlegit.commitView"
+    "onView:turtlegit.sidebarView"
   ],
   "main": "./dist/extension.js",
   "contributes": {
@@ -57,6 +57,12 @@
         "command": "turtlegit.commitPath",
         "title": "在此提交… (Commit Here)",
         "category": "TurtleGit"
+      },
+      {
+        "command": "turtlegit.branches",
+        "title": "分支… (Branches)",
+        "category": "TurtleGit",
+        "icon": "$(git-branch)"
       },
       {
         "command": "turtlegit.openFile",
@@ -171,6 +177,11 @@
         {
           "command": "turtlegit.stash",
           "group": "2_turtlegit@6"
+        },
+        {
+          "command": "turtlegit.branches",
+          "when": "!explorerResourceIsFolder",
+          "group": "2_turtlegit@7"
         }
       ],
       "editor/context": [
@@ -210,22 +221,22 @@
       "view/title": [
         {
           "command": "turtlegit.log",
-          "when": "view == turtlegit.commitView",
+          "when": "view == turtlegit.sidebarView",
           "group": "2_more@1"
         },
         {
           "command": "turtlegit.graph",
-          "when": "view == turtlegit.commitView",
+          "when": "view == turtlegit.sidebarView",
           "group": "2_more@2"
         },
         {
           "command": "turtlegit.pull",
-          "when": "view == turtlegit.commitView",
+          "when": "view == turtlegit.sidebarView",
           "group": "2_more@3"
         },
         {
           "command": "turtlegit.push",
-          "when": "view == turtlegit.commitView",
+          "when": "view == turtlegit.sidebarView",
           "group": "2_more@4"
         }
       ]
@@ -296,8 +307,8 @@
       "turtlegit": [
         {
           "type": "webview",
-          "id": "turtlegit.commitView",
-          "name": "提交"
+          "id": "turtlegit.sidebarView",
+          "name": ""
         }
       ]
     }

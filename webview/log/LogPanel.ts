@@ -219,7 +219,7 @@ export class LogPanel {
           toast(`已检出 ${short}（分离头指针）`);
           break;
         case 'branch': {
-          const name = promptValue('新分支名称：', `branch-${short}`);
+          const name = await promptValue('新分支名称：', `branch-${short}`);
           if (name) {
             await this.client.send('branch:create', {
               repoRoot: this.repoRoot,
@@ -232,7 +232,7 @@ export class LogPanel {
           break;
         }
         case 'tag': {
-          const name = promptValue('标签名称：', `v-${short}`);
+          const name = await promptValue('标签名称：', `v-${short}`);
           if (name) {
             await this.client.send('tag:create', { repoRoot: this.repoRoot, name, ref: hash });
             toast(`已创建标签 ${name}`);

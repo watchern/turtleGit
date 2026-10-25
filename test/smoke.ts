@@ -5,10 +5,11 @@
 import { GitRunner, resolveGitExecutable } from '../src/host/git/GitRunner';
 import { GitService } from '../src/host/git/GitService';
 import { BranchOps } from '../src/host/git/BranchOps';
-import { parseStatus, parseLog, parseCommitFiles } from '../src/host/git/parsers';
+import { parseStatus, parseLog, parseCommitFiles, parseSignOffIdentity } from '../src/host/git/parsers';
 import { absPathIn, relPathIn, normalizeFsPath } from '../src/host/core/paths';
 import { blobUriParams, blobUriQuery, parseBlobParams } from '../src/host/core/blobUri';
-import { computeLanes } from '../webview/graph/lanes';
+import { computeLanes, buildEdges, laneColor, badgeWidth } from '../webview/graph/lanes';
+import { parseBranchName, parseRemotes } from '../src/host/git/BranchOps';
 import { CommitInfo, FileStatus } from '../shared/protocol';
 
 let failures = 0;
@@ -140,6 +141,109 @@ async function main(): Promise<void> {
   const cf = await git.commitFiles(dir, hash);
   check('提交文件解析 b.ts', cf.some((f) => f.path === 'src/b.ts' && f.status === 'M'), cf);
   check('numstat 统计', cf[0]?.additions === 1 && cf[0]?.deletions === 1, cf[0]);
+
+  console.log('== 签署（Signed-off-by）与提交后推送 ==');
+  // --- 纯函数：签署人解析 ---
+  const idFull = parseSignOffIdentity('张三 <zhangsan@example.com>');
+  check(
+    '解析完整签署人',
+    idFull?.name === '张三' && idFull?.email === 'zhangsan@example.com',
+    idFull,
+  );
+  const idName = parseSignOffIdentity('  李四  ');
+  check('纯姓名 → email 为空', idName?.name === '李四' && idName?.email === '', idName);
+  const idMail = parseSignOffIdentity('lisi@example.com');
+  check('纯邮箱 → name 为空', idMail?.name === '' && idMail?.email === 'lisi@example.com', idMail);
+  check('空白返回 null', parseSignOffIdentity('   ') === null);
+  check('换行/制表符折叠成空格', parseSignOffIdentity('王五\n<w@e.com>')?.name === '王五');
+  check('尖括号被剥离防注入', parseSignOffIdentity('a<b')?.name === 'ab');
+
+  // --- git 身份读取 ---
+  const ident = await git.identity(dir);
+  check(
+    'identity 读出仓库配置',
+    ident.name === '测试用户' && ident.email === 'test@example.com',
+    ident,
+  );
+
+  const bodyOf = (): string =>
+    cp.spawnSync('git', ['log', '-1', '--format=%B'], { cwd: dir, encoding: 'utf8' }).stdout;
+
+  // --- 填写签署人 → 覆盖本次提交身份 ---
+  fs.writeFileSync(path.join(dir, 'signoff1.txt'), 'x\n', 'utf8');
+  run(['add', 'signoff1.txt']);
+  await git.commit({
+    repoRoot: dir,
+    message: 'test: 自定义签署人',
+    signOff: true,
+    signOffName: '张三 <zhangsan@example.com>',
+  });
+  check(
+    '自定义签署人写入 Signed-off-by',
+    bodyOf().includes('Signed-off-by: 张三 <zhangsan@example.com>'),
+    bodyOf(),
+  );
+
+  // --- 不填签署人 → 用 git 自己的身份 ---
+  fs.writeFileSync(path.join(dir, 'signoff2.txt'), 'y\n', 'utf8');
+  run(['add', 'signoff2.txt']);
+  await git.commit({ repoRoot: dir, message: 'test: 默认签署', signOff: true });
+  check(
+    '默认签署用 git 身份',
+    bodyOf().includes('Signed-off-by: 测试用户 <test@example.com>'),
+    bodyOf(),
+  );
+
+  // --- 不勾选签署 → 无尾注 ---
+  fs.writeFileSync(path.join(dir, 'signoff3.txt'), 'z\n', 'utf8');
+  run(['add', 'signoff3.txt']);
+  await git.commit({ repoRoot: dir, message: 'test: 不签署' });
+  check('未勾选签署时无 Signed-off-by', !bodyOf().includes('Signed-off-by'), bodyOf());
+
+  // --- 仓库与全局均无身份时，靠签署人补齐也能提交 ---
+  const noId = fs.mkdtempSync(path.join(os.tmpdir(), 'turtlegit-noid-'));
+  const bareEnv = {
+    ...process.env,
+    HOME: noId,
+    USERPROFILE: noId,
+    GIT_CONFIG_NOSYSTEM: '1',
+  };
+  const runBare = (args: string[]) => {
+    const r = cp.spawnSync('git', args, { cwd: noId, encoding: 'utf8', env: bareEnv });
+    return r;
+  };
+  runBare(['init', '-b', 'main']);
+  fs.writeFileSync(path.join(noId, 'a.txt'), 'a\n', 'utf8');
+  runBare(['add', 'a.txt']);
+  const noIdCommit = await git.commit({
+    repoRoot: noId,
+    message: 'test: 无身份仓库签署',
+    signOff: true,
+    signOffName: '王五 <wangwu@example.com>',
+  });
+  check(
+    '无身份仓库靠签署人完成提交',
+    /^[0-9a-f]{40}$/.test(noIdCommit.hash),
+    noIdCommit,
+  );
+  const noIdBody = cp.spawnSync('git', ['log', '-1', '--format=%B'], {
+    cwd: noId,
+    encoding: 'utf8',
+    env: bareEnv,
+  }).stdout;
+  check(
+    '无身份仓库的 Signed-off-by 正确',
+    noIdBody.includes('Signed-off-by: 王五 <wangwu@example.com>'),
+    noIdBody,
+  );
+  // -c 覆盖对 author/committer 同时生效：身份缺失时靠签署人补齐
+  const noIdAuthor = cp.spawnSync('git', ['log', '-1', '--format=%an <%ae>'], {
+    cwd: noId,
+    encoding: 'utf8',
+    env: bareEnv,
+  }).stdout.trim();
+  check('无身份仓库的作者为签署人', noIdAuthor === '王五 <wangwu@example.com>', noIdAuthor);
+  fs.rmSync(noId, { recursive: true, force: true });
 
   console.log('== 分支信息 ==');
   const info = await git.branchInfo(dir);
@@ -366,6 +470,51 @@ async function main(): Promise<void> {
     fs3.rmSync(work, { recursive: true, force: true });
   }
 
+  console.log('== stash 按文件查看（主窗口 Stash 面板底层能力） ==');
+  {
+    const os4 = await import('os');
+    const fs4 = await import('fs');
+    const path4 = await import('path');
+    const cp4 = await import('child_process');
+    const d4 = fs4.mkdtempSync(path4.join(os4.tmpdir(), 'turtlegit-stashfiles-'));
+    const r4 = (args: string[]) => {
+      const r = cp4.spawnSync('git', args, { cwd: d4, encoding: 'utf8' });
+      if (r.status !== 0) throw new Error(`git ${args.join(' ')} failed: ${r.stderr}`);
+      return r.stdout.trim();
+    };
+    r4(['init', '-b', 'main']);
+    r4(['config', 'user.email', 'stash@example.com']);
+    r4(['config', 'user.name', '暂存测试']);
+    fs4.writeFileSync(path4.join(d4, 'a.txt'), 'one\ntwo\n', 'utf8');
+    fs4.mkdirSync(path4.join(d4, 'src'));
+    fs4.writeFileSync(path4.join(d4, 'src', 'b.ts'), 'const b = 1;\n', 'utf8');
+    r4(['add', '-A']);
+    r4(['commit', '-m', 'base']);
+    // 构造含两个文件的 stash
+    fs4.writeFileSync(path4.join(d4, 'a.txt'), 'one\ntwo-mod\nthree\n', 'utf8');
+    fs4.writeFileSync(path4.join(d4, 'src', 'b.ts'), 'const b = 2;\n', 'utf8');
+    await ops.stashPush(d4, 'wip: two files');
+
+    // 主窗口 Stash 面板的文件列表：log:files 直接解析 stash ref
+    const stashFiles = await git.commitFiles(d4, 'stash@{0}');
+    check('stash 文件列表含 a.txt', stashFiles.some((f) => f.path === 'a.txt'), stashFiles.map((f) => f.path));
+    check('stash 文件列表含 src/b.ts', stashFiles.some((f) => f.path === 'src/b.ts'), stashFiles.map((f) => f.path));
+    check('stash 文件数为 2', stashFiles.length === 2, stashFiles.length);
+    check('stash 文件状态为 M', stashFiles.every((f) => f.status === 'M'), stashFiles.map((f) => f.status));
+
+    // 按文件查看差异：diff:patch 的 path + range 组合（git diff stash@{0}^..stash@{0} -- <file>）
+    const patchA = await git.diffPatch(d4, 'a.txt', false, undefined, 'stash@{0}^..stash@{0}');
+    check('a.txt 差异含新增行', patchA.includes('+three') && patchA.includes('-two'), patchA);
+    check('a.txt 差异不含 b.ts 内容', !patchA.includes('const b = 2'), patchA);
+    const patchB = await git.diffPatch(d4, 'src/b.ts', false, undefined, 'stash@{0}^..stash@{0}');
+    check('b.ts 差异仅含本文件改动', patchB.includes('+const b = 2') && patchB.includes('-const b = 1'), patchB);
+    check('b.ts 差异不含 a.txt 内容', !patchB.includes('three'), patchB);
+
+    await ops.stashPop(d4, 0);
+    check('pop 后两文件恢复', fs4.readFileSync(path4.join(d4, 'a.txt'), 'utf8').includes('three'));
+    fs4.rmSync(d4, { recursive: true, force: true });
+  }
+
   console.log('== lane 算法 ==');
   {
     const mk = (hash: string, parents: string[]): CommitInfo => ({
@@ -408,6 +557,51 @@ async function main(): Promise<void> {
       mk('r', []),
     ]);
     check('三分叉占据 3 条 lane', new Set([triple[1].lane, triple[2].lane, triple[3].lane]).size === 3, triple.map((n) => n.lane));
+  }
+
+  console.log('== 版本分支图几何（buildEdges / laneColor / badgeWidth） ==');
+  {
+    const mk = (hash: string, parents: string[]): CommitInfo => ({
+      hash,
+      shortHash: hash,
+      parents,
+      author: 't',
+      authorEmail: 't@t',
+      authorDate: '2026-01-01T00:00:00+08:00',
+      subject: hash,
+      body: '',
+      refs: [],
+    });
+    // 线性历史：逐行相连
+    const lin = buildEdges(computeLanes([mk('c', ['b']), mk('b', ['a']), mk('a', [])]));
+    check('线性历史 2 条连线', lin.length === 2, lin);
+    check('线性连线连到下一行', lin[0].fromRow === 0 && lin[0].toRow === 1 && !lin[0].continues, lin[0]);
+    check('线性连线不跨 lane', lin.every((e) => e.fromLane === e.toLane), lin);
+
+    // 关键回归：合并提交的父提交往往隔着多行，连线必须连到父提交真实所在行
+    // （旧实现一律连到下一行 → 线断在半空、节点没有入边，图看起来错位）
+    const forked = computeLanes([mk('m', ['b', 'c']), mk('b', ['root']), mk('c', ['root']), mk('root', [])]);
+    const fe = buildEdges(forked);
+    const mToB = fe.find((e) => e.fromRow === 0 && e.toLane === forked[1].lane);
+    const mToC = fe.find((e) => e.fromRow === 0 && e.toLane === forked[2].lane);
+    check('合并节点第一父连到其真实行（隔行）', mToB?.toRow === 1, mToB);
+    check('合并节点第二父连到其真实行', mToC?.toRow === 2, mToC);
+    check('不再有连到"下一行"的错位连线', !fe.some((e) => e.fromRow === 0 && e.toRow === 1 && e.toLane === forked[2].lane), fe);
+    check('末行 root 无出边', !fe.some((e) => e.fromRow === 3), fe);
+
+    // 父提交不在列表内（未加载/被过滤）→ 延伸到底部
+    const cont = buildEdges(computeLanes([mk('c', ['missing'])]));
+    check('父提交缺失时标记为 continues', cont.length === 1 && cont[0].continues === true, cont);
+
+    // lane 配色：固定调色板，不依赖主题背景色（暗黑模式下不会变黑点）
+    check('不同 lane 颜色不同', laneColor(0) !== laneColor(1) && laneColor(1) !== laneColor(2));
+    check('lane 颜色循环复用', laneColor(8) === laneColor(0));
+    check('lane 颜色是具体色值而非主题变量', /^#[0-9a-f]{6}$/i.test(laneColor(3)), laneColor(3));
+
+    // 徽标宽度：全角字符按 2 单位算，避免中文溢出矩形
+    check('纯 ASCII 徽标宽度', Math.abs(badgeWidth('master') - (6 * 6.2 + 12)) < 0.001, badgeWidth('master'));
+    check('中文徽标按全角计宽', Math.abs(badgeWidth('中文') - (4 * 6.2 + 12)) < 0.001, badgeWidth('中文'));
+    check('中文徽标比同长度英文宽', badgeWidth('中文') > badgeWidth('ab'));
   }
 
   console.log('== 文件目录树构建（buildFileTree / collectFiles） ==');
@@ -646,6 +840,111 @@ async function main(): Promise<void> {
     check('parseBlobParams 拒绝非法 query', parseBlobParams('not-json') === null && parseBlobParams('') === null);
     const paramsIdx = parseBlobParams(blobUriQuery(abs, '', dir2));
     check('query 支持 index 版本（ref 空串）', paramsIdx?.ref === '' && paramsIdx?.path === abs, paramsIdx);
+  }
+
+  console.log('== 分支名与远程解析（parseBranchName / parseRemotes） ==');
+  {
+    const a = parseBranchName('remotes/origin/feature/x');
+    check('远程分支解析出 remote + 短名', a.isRemote && a.remote === 'origin' && a.shortName === 'feature/x', a);
+    const b = parseBranchName('origin/feature');
+    check('本地含斜杠分支不误判为远程', !b.isRemote && b.shortName === 'origin/feature' && b.remote === undefined, b);
+    const c = parseBranchName('main');
+    check('普通本地分支', !c.isRemote && c.shortName === 'main', c);
+
+    const rs = parseRemotes(
+      [
+        'origin\thttps://x/r.git (fetch)',
+        'origin\thttps://x/r.git (push)',
+        'upstream\tgit@x:y.git (fetch)',
+        'upstream\tgit@x:no.git (push)',
+      ].join('\n'),
+    );
+    check('remote 去重为 2 个', rs.length === 2, rs.map((r) => r.name));
+    check('fetch/push 相同则不输出 pushUrl', rs[0]?.fetchUrl === 'https://x/r.git' && rs[0]?.pushUrl === undefined, rs[0]);
+    check('fetch/push 不同给出 pushUrl', rs[1]?.fetchUrl === 'git@x:y.git' && rs[1]?.pushUrl === 'git@x:no.git', rs[1]);
+    check('空输出解析为空数组', parseRemotes('').length === 0);
+  }
+
+  console.log('== 远程仓库管理 + 远程分支检出（真实仓库，file-path 远程） ==');
+  {
+    // 用本地文件路径当"远程"，无需网络即可验证 push --delete / checkout --track
+    const dir3 = fs.mkdtempSync(path.join(os.tmpdir(), 'turtlegit-remote-'));
+    const bare = path.join(dir3, 'bare.git');
+    const work = path.join(dir3, 'work');
+    fs.mkdirSync(work);
+    const run3 = (args: string[], cwd = work): string => {
+      const r = cp.spawnSync('git', args, { cwd, encoding: 'utf8' });
+      if (r.status !== 0) throw new Error(`git ${args.join(' ')} failed: ${r.stderr}`);
+      return r.stdout;
+    };
+    run3(['init', '-q', '--bare', bare], dir3);
+    run3(['init', '-q', '-b', 'main']);
+    run3(['config', 'user.email', 'test@example.com']);
+    run3(['config', 'user.name', '测试用户']);
+    fs.writeFileSync(path.join(work, 'f.txt'), 'v1\n', 'utf8');
+    run3(['add', '-A']);
+    run3(['commit', '-qm', 'init']);
+    run3(['remote', 'add', 'origin', bare]);
+    run3(['push', '-u', 'origin', 'main']);
+
+    let rs = await ops.remotes(work);
+    check('remotes() 列出 origin 与地址', rs.length === 1 && rs[0]?.name === 'origin' && rs[0]?.fetchUrl === bare, rs);
+
+    // 回归：%(refname:short) 输出的远程分支是 `origin/main`（不带 remotes/ 前缀），
+    // 旧实现按 `remotes/` 判定导致远程分支被误报成本地分支
+    const pushed = await ops.branches(work);
+    const rm = pushed.find((b) => b.name === 'origin/main');
+    check('远程分支被正确标记为 isRemote', rm?.isRemote === true && rm?.remote === 'origin' && rm?.shortName === 'main', rm);
+    check('本地分支不被误标为远程', pushed.find((b) => b.name === 'main')?.isRemote === false, pushed.map((b) => b.name));
+
+    await ops.setRemoteUrl(work, 'origin', `${bare}-new`);
+    rs = await ops.remotes(work);
+    check('setRemoteUrl 改 fetch 地址', rs[0]?.fetchUrl === `${bare}-new`, rs);
+    await ops.setRemoteUrl(work, 'origin', `${bare}-push`, true);
+    rs = await ops.remotes(work);
+    check(
+      'setRemoteUrl(push) 只改 push 地址',
+      rs[0]?.pushUrl === `${bare}-push` && rs[0]?.fetchUrl === `${bare}-new`,
+      rs,
+    );
+    await ops.setRemoteUrl(work, 'origin', bare);
+    await ops.setRemoteUrl(work, 'origin', bare, true);
+
+    await ops.addRemote(work, 'backup', bare);
+    rs = await ops.remotes(work);
+    check('addRemote 新增第二个远程', rs.length === 2 && rs.some((r) => r.name === 'backup'), rs.map((r) => r.name));
+    await ops.removeRemote(work, 'backup');
+    rs = await ops.remotes(work);
+    check('removeRemote 删除远程', rs.length === 1 && rs[0]?.name === 'origin', rs.map((r) => r.name));
+
+    // 远程分支：本地删掉后从 origin/feature 检出（应新建同名本地分支并跟踪）
+    run3(['checkout', '-q', '-b', 'feature']);
+    fs.writeFileSync(path.join(work, 'f.txt'), 'v2\n', 'utf8');
+    run3(['add', '-A']);
+    run3(['commit', '-qm', 'feature']);
+    run3(['push', '-u', 'origin', 'feature']);
+    run3(['checkout', '-q', 'main']);
+    run3(['branch', '-D', 'feature']);
+    const list = await ops.branches(work);
+    const rb = list.find((b) => b.isRemote && b.name === 'origin/feature');
+    check('远程分支带 remote/shortName', rb?.remote === 'origin' && rb?.shortName === 'feature', rb);
+    const co = await ops.checkoutRemote(work, 'origin/feature');
+    check('检出远程分支 → 新建本地分支', co.created === true && co.branch === 'feature', co);
+    check(
+      '检出后当前分支为 feature',
+      (await ops.branches(work)).find((b) => b.isCurrent)?.name === 'feature',
+    );
+    const co2 = await ops.checkoutRemote(work, 'origin/feature');
+    check('本地已存在时直接检出（不新建）', co2.created === false && co2.branch === 'feature', co2);
+
+    await ops.deleteRemoteBranch(work, 'origin', 'feature');
+    run3(['fetch', '--prune']);
+    const after = await ops.branches(work);
+    check(
+      '删除远程分支后列表消失',
+      !after.some((b) => b.isRemote && b.name === 'origin/feature'),
+      after.map((b) => b.name),
+    );
   }
 
   if (failures > 0) {

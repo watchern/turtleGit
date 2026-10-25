@@ -16,6 +16,12 @@ interface CommitPanelState {
   diffMode?: 'side' | 'unified';
   showUntracked?: boolean;
   showIgnored?: boolean;
+  /** 签署 (Signed-off-by) 勾选 */
+  signOff?: boolean;
+  /** 签署人「姓名 <邮箱>」，留空表示用 git 身份 */
+  signOffName?: string;
+  /** 提交后自动推送 */
+  pushAfter?: boolean;
 }
 
 /**
@@ -48,6 +54,8 @@ export class CommitPanel {
   private btnCommit!: HTMLButtonElement;
   private chkAmend!: HTMLInputElement;
   private chkSignOff!: HTMLInputElement;
+  private chkPush!: HTMLInputElement;
+  private inpSignOff!: HTMLInputElement;
 
   constructor(
     root: HTMLElement,
@@ -64,6 +72,20 @@ export class CommitPanel {
     this.updateViewModeButton();
     void this.reload(initialPaths);
     this.bindStoreEvents();
+    void this.loadIdentity();
+  }
+
+  /** 读取 git 身份，给签署人输入框填默认「姓名 <邮箱>」（用户已手工填写时不覆盖） */
+  private async loadIdentity(): Promise<void> {
+    try {
+      const id = await this.client.send('repo:identity', { repoRoot: this.repoRoot });
+      if ((id.name || id.email) && !this.inpSignOff.value.trim()) {
+        this.inpSignOff.value = `${id.name} <${id.email}>`.trim();
+      }
+      this.inpSignOff.placeholder = id.name || id.email ? `${id.name} <${id.email}>` : '姓名 <邮箱>';
+    } catch {
+      /* 身份读取失败不影响提交 */
+    }
   }
 
   // ---------- UI 构建 ----------
@@ -107,6 +129,8 @@ export class CommitPanel {
     <div class="commit-foot">
       <label class="chk"><input type="checkbox" id="chk-amend"> 修订上次提交 (Amend)</label>
       <label class="chk"><input type="checkbox" id="chk-signoff"> 签署 (Signed-off-by)</label>
+      <input type="text" id="inp-signoff" class="signoff-input" placeholder="姓名 &lt;邮箱&gt;" hidden>
+      <label class="chk"><input type="checkbox" id="chk-push"> 提交后推送</label>
       <span class="sel-stat" id="sel-stat"></span>
       <span class="flex"></span>
       <label class="chk"><input type="checkbox" id="chk-closeafter" checked> 提交后关闭</label>
@@ -126,6 +150,17 @@ export class CommitPanel {
     this.btnCommit = this.must('btn-commit') as HTMLButtonElement;
     this.chkAmend = this.must('chk-amend') as HTMLInputElement;
     this.chkSignOff = this.must('chk-signoff') as HTMLInputElement;
+    this.chkPush = this.must('chk-push') as HTMLInputElement;
+    this.inpSignOff = this.must('inp-signoff') as HTMLInputElement;
+
+    // 勾选「签署」时才显示签署人输入框
+    this.chkSignOff.addEventListener('change', () => {
+      this.inpSignOff.hidden = !this.chkSignOff.checked;
+      if (this.chkSignOff.checked) this.inpSignOff.focus();
+      this.persist();
+    });
+    this.chkPush.addEventListener('change', () => this.persist());
+    this.inpSignOff.addEventListener('input', () => this.persistSoon());
     this.must('repo-name').textContent = this.repoRoot;
 
     this.must('btn-commit').addEventListener('click', () => void this.commit());
@@ -205,6 +240,10 @@ export class CommitPanel {
     if (typeof s.showUntracked === 'boolean') this.showUntracked = s.showUntracked;
     if (typeof s.showIgnored === 'boolean') this.showIgnored = s.showIgnored;
     if (s.selectedPath) this.selectedPath = s.selectedPath;
+    if (typeof s.signOff === 'boolean') this.chkSignOff.checked = s.signOff;
+    this.inpSignOff.hidden = !this.chkSignOff.checked;
+    if (typeof s.signOffName === 'string') this.inpSignOff.value = s.signOffName;
+    if (typeof s.pushAfter === 'boolean') this.chkPush.checked = s.pushAfter;
     (this.must('chk-untracked') as HTMLInputElement).checked = this.showUntracked;
     (this.must('chk-ignored') as HTMLInputElement).checked = this.showIgnored;
     this.must('btn-diff-mode').textContent = this.diffMode === 'side' ? '并排' : '统一';
@@ -221,6 +260,9 @@ export class CommitPanel {
       diffMode: this.diffMode,
       showUntracked: this.showUntracked,
       showIgnored: this.showIgnored,
+      signOff: this.chkSignOff.checked,
+      signOffName: this.inpSignOff.value,
+      pushAfter: this.chkPush.checked,
     };
     saveState(state);
   }
@@ -386,12 +428,12 @@ export class CommitPanel {
           : f.path;
         const rename = f.origPath ? `<span class="rename">← ${f.origPath}</span>` : '';
         const stat = this.fileStatHtml(f.path);
-        return `<div class="file-row${this.selectedPath === f.path ? ' active' : ''}" data-path="${escAttr(f.path)}" title="${escAttr(f.path)}">
-  <input type="checkbox" class="file-check" ${checked} data-path="${escAttr(f.path)}">
-  <span class="badge ${badge.cls}" title="${escAttr(badge.title)}">${badge.text}</span>
+        return `<div class="file-row${this.selectedPath === f.path ? ' active' : ''}" data-path="${this.escAttr(f.path)}" title="${this.escAttr(f.path)}">
+  <input type="checkbox" class="file-check" ${checked} data-path="${this.escAttr(f.path)}">
+  <span class="badge ${badge.cls}">${badge.text}</span>
   ${stat}
-  <span class="file-name">${esc(name)}${rename}</span>
-  <span class="file-dir">${esc(dir)}</span>
+  <span class="file-name">${this.esc(name)}${rename}</span>
+  <span class="file-dir">${this.esc(dir)}</span>
 </div>`;
       })
       .join('');
@@ -409,10 +451,10 @@ export class CommitPanel {
           const indeterminate = selectedCount > 0 && !all;
           const indent = 10 + depth * 14;
           const twisty = `<span class="dir-twisty${collapsed ? '' : ' open'}" title="展开/折叠"><svg width="12" height="12" viewBox="0 0 12 12" aria-hidden="true"><path d="M4.5 1.5 8.5 6 4.5 10.5" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg></span>`;
-          const row = `<div class="dir-row" data-dir="${escAttr(n.path)}" style="padding-left:${indent}px" title="${escAttr(n.path)}">
+          const row = `<div class="dir-row" data-dir="${this.escAttr(n.path)}" style="padding-left:${indent}px" title="${this.escAttr(n.path)}">
   ${twisty}
-  <input type="checkbox" class="dir-check" data-dir="${escAttr(n.path)}"${all ? ' checked' : ''}${indeterminate ? ' data-indeterminate="1"' : ''}>
-  <span class="dir-name">${esc(n.label)}</span>
+  <input type="checkbox" class="dir-check" data-dir="${this.escAttr(n.path)}"${all ? ' checked' : ''}${indeterminate ? ' data-indeterminate="1"' : ''}>
+  <span class="dir-name">${this.esc(n.label)}</span>
   <span class="dir-count">${selectedCount}/${childFiles.length}</span>
 </div>`;
           return collapsed ? row : row + this.renderTree(n.children ?? [], depth + 1);
@@ -423,11 +465,11 @@ export class CommitPanel {
         const stat = this.fileStatHtml(f.path);
         const rename = f.origPath ? `<span class="rename">← ${f.origPath}</span>` : '';
         const indent = 10 + depth * 14 + 16;
-        return `<div class="file-row${this.selectedPath === f.path ? ' active' : ''}" data-path="${escAttr(f.path)}" style="padding-left:${indent}px" title="${escAttr(f.path)}">
-  <input type="checkbox" class="file-check" ${checked} data-path="${escAttr(f.path)}">
-  <span class="badge ${badge.cls}" title="${escAttr(badge.title)}">${badge.text}</span>
+        return `<div class="file-row${this.selectedPath === f.path ? ' active' : ''}" data-path="${this.escAttr(f.path)}" style="padding-left:${indent}px" title="${this.escAttr(f.path)}">
+  <input type="checkbox" class="file-check" ${checked} data-path="${this.escAttr(f.path)}">
+  <span class="badge ${badge.cls}">${badge.text}</span>
   ${stat}
-  <span class="file-name">${esc(n.label)}${rename}</span>
+  <span class="file-name">${this.esc(n.label)}${rename}</span>
 </div>`;
       })
       .join('');
@@ -541,7 +583,7 @@ export class CommitPanel {
       const stat = patchStat(patch);
       this.statEl.textContent = stat.additions || stat.deletions ? `+${stat.additions} -${stat.deletions}` : '';
     } catch (err) {
-      this.diffEl.innerHTML = `<div class="diff-empty">无法读取差异：${esc(String(err))}</div>`;
+      this.diffEl.innerHTML = `<div class="diff-empty">无法读取差异：${this.esc(String(err))}</div>`;
     }
   }
 
@@ -637,11 +679,16 @@ export class CommitPanel {
         files,
         amend: this.chkAmend.checked,
         signOff: this.chkSignOff.checked,
+        signOffName: this.inpSignOff.value.trim(),
+        pushAfter: this.chkPush.checked,
       });
       this.msgEl.value = '';
       this.chkAmend.checked = false;
       this.clearPersistedState();
-      this.toast(`提交成功：${result.hash.slice(0, 7)}`);
+      let text = `提交成功：${result.hash.slice(0, 7)}`;
+      if (result.pushed === true) text += `（已推送：${result.pushMessage || '完成'}）`;
+      else if (result.pushed === false) text += `（推送失败：${result.pushMessage || '未知原因'}）`;
+      this.toast(text);
       const closeAfter = (this.must('chk-closeafter') as HTMLInputElement).checked;
       if (closeAfter) {
         this.client.command('closePanel');
@@ -671,4 +718,11 @@ export class CommitPanel {
     }, 3000);
   }
 
+  private esc(s: string): string {
+    return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  }
+
+  private escAttr(s: string): string {
+    return this.esc(s).replace(/"/g, '&quot;');
+  }
 }
