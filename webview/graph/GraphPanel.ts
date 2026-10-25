@@ -11,13 +11,16 @@ import {
   pickCompareRef,
   isHeadCommit,
   branchChips,
+  autoLaneWidth,
+  graphWidth,
+  nodeRadius,
+  LANE_W_MIN,
+  LANE_W_MAX,
   GraphNode,
 } from './lanes';
 import { BranchEntry, CommitFile, CommitInfo } from '../../shared/protocol';
 
 const ROW_H = 26;
-const COL_W = 18;
-const NODE_R = 5;
 /** hash 文本列（等宽 11px，shortHash 7 字符）——表头与行共用 */
 const HASH_W = 50;
 /** 作者 / 日期列默认宽（与 Intellig log 表一致） */
@@ -26,17 +29,23 @@ const DATE_W = 145;
 /** 列宽拖拽范围（Intellig：40–600） */
 const MIN_COL_W = 40;
 const MAX_COL_W = 600;
+/** hash 列可缩到 34px（约 5 字符），拉到 140px（长缩写哈希） */
+const MIN_HASH_W = 34;
+const MAX_HASH_W = 140;
 /** 键盘调列宽步长 */
 const COL_KEY_STEP = 10;
 const MIN_PANE_W = 240;
 
-/** 面板布局（左图面板宽 + 作者/日期列宽），跨 webview 重载保持 */
+/** 面板布局（左图面板宽 + 各列宽），跨 webview 重载保持 */
 interface GraphLayout {
   paneW: number;
+  /** lane 间距（px）；undefined = 按 lane 数自适应压缩 */
+  laneW?: number;
+  hashW: number;
   authorW: number;
   dateW: number;
 }
-const DEFAULT_LAYOUT: GraphLayout = { paneW: 460, authorW: AUTHOR_W, dateW: DATE_W };
+const DEFAULT_LAYOUT: GraphLayout = { paneW: 460, hashW: HASH_W, authorW: AUTHOR_W, dateW: DATE_W };
 
 /** 「与当前分支对比」状态 */
 interface CompareState {
@@ -110,6 +119,9 @@ export class GraphPanel {
 
   // 布局（持久化）
   private paneW = DEFAULT_LAYOUT.paneW;
+  /** undefined = 按 lane 数自适应（压缩图沟槽占用） */
+  private laneW: number | undefined;
+  private hashW = DEFAULT_LAYOUT.hashW;
   private authorW = DEFAULT_LAYOUT.authorW;
   private dateW = DEFAULT_LAYOUT.dateW;
 
@@ -135,6 +147,12 @@ export class GraphPanel {
   private build(): void {
     const saved = loadState<Partial<GraphLayout>>();
     this.paneW = saved?.paneW && saved.paneW >= MIN_PANE_W ? saved.paneW : DEFAULT_LAYOUT.paneW;
+    // laneW 允许 undefined（自适应）；有值时按范围夹紧
+    this.laneW =
+      typeof saved?.laneW === 'number' && Number.isFinite(saved.laneW)
+        ? Math.max(LANE_W_MIN, Math.min(LANE_W_MAX, Math.round(saved.laneW)))
+        : undefined;
+    this.hashW = this.clamp(saved?.hashW, HASH_W, MIN_HASH_W, MAX_HASH_W);
     this.authorW = this.clampCol(saved?.authorW, AUTHOR_W);
     this.dateW = this.clampCol(saved?.dateW, DATE_W);
     this.el.innerHTML = `
@@ -145,7 +163,7 @@ export class GraphPanel {
   <button id="btn-more" class="mini" title="加载更多">加载更多</button>
 </div>
 <div class="split" id="split">
-  <section class="pane left graph-pane" id="graph-pane" style="width:${this.paneW}px; --col-author-width:${this.authorW}px; --col-date-width:${this.dateW}px; --graph-w:60px">
+  <section class="pane left graph-pane" id="graph-pane" style="width:${this.paneW}px; --col-author-width:${this.authorW}px; --col-date-width:${this.dateW}px; --col-hash-width:${this.hashW}px; --graph-w:60px">
     <div class="log-filter-row">
       <div class="log-filter-search">
         <input type="search" id="flt-search" class="log-filter-search-input" placeholder="搜索 哈希/消息/作者/引用" title="搜索（Ctrl+F 聚焦，回车下一个，Shift+回车上一个）">
@@ -183,11 +201,13 @@ export class GraphPanel {
     </div>
     <div class="log-column-header">
       <div class="log-column-header-info">
+        <div class="log-column-resize-handle first" data-column-resize="graph" role="separator" aria-label="调整图沟槽宽（lane 间距）" tabindex="0" title="拖拽或方向键（±10px）调整图沟槽宽；双击复位为自适应压缩"></div>
         <div class="log-column-header-hash">提交</div>
+        <div class="log-column-resize-handle" data-column-resize="hash" role="separator" aria-label="调整提交号列宽" tabindex="0" title="拖拽或方向键（±10px）调整提交号列宽；双击复位"></div>
         <div class="log-column-header-title">消息</div>
-        <div class="log-column-resize-handle" data-column-resize="author" role="separator" aria-label="调整作者列宽" tabindex="0" title="拖拽或方向键（±10px）调整作者列宽"></div>
+        <div class="log-column-resize-handle" data-column-resize="author" role="separator" aria-label="调整作者列宽" tabindex="0" title="拖拽或方向键（±10px）调整作者列宽（消息列随之伸缩）；双击复位"></div>
         <div class="log-column-header-author">作者</div>
-        <div class="log-column-resize-handle" data-column-resize="date" role="separator" aria-label="调整日期列宽" tabindex="0" title="拖拽或方向键（±10px）调整日期列宽"></div>
+        <div class="log-column-resize-handle" data-column-resize="date" role="separator" aria-label="调整日期列宽" tabindex="0" title="拖拽或方向键（±10px）调整日期列宽；双击复位"></div>
         <div class="log-column-header-date">日期</div>
       </div>
     </div>
@@ -290,8 +310,12 @@ export class GraphPanel {
   }
 
   private clampCol(w: number | undefined, fallback: number): number {
+    return this.clamp(w, fallback, MIN_COL_W, MAX_COL_W);
+  }
+
+  private clamp(w: number | undefined, fallback: number, min: number, max: number): number {
     if (typeof w !== 'number' || !Number.isFinite(w)) return fallback;
-    return Math.max(MIN_COL_W, Math.min(MAX_COL_W, Math.round(w)));
+    return Math.max(min, Math.min(max, Math.round(w)));
   }
 
   // ---------- 搜索（跳转） ----------
@@ -469,30 +493,29 @@ export class GraphPanel {
     });
   }
 
-  // ---------- 表头列宽调整（作者 / 日期） ----------
+  // ---------- 表头列宽调整（图沟槽 / 提交号 / 作者 / 日期） ----------
 
+  /**
+   * 各列宽由 CSS 变量驱动，拖拽时只 setProperty 即可（表头与全部行即时跟随，无需重渲染）；
+   * 只有图沟槽例外——lane 间距变了要重排 SVG 里的连线与节点，故需 renderGraph。
+   * 消息列是弹性列（flex:1），宽度 = 剩余空间，通过其两侧的列宽反向调节。
+   */
   private bindColumnResize(): void {
     this.graphEl.querySelectorAll<HTMLElement>('.log-column-resize-handle').forEach((h) => {
-      const which = h.dataset.columnResize === 'date' ? 'date' : 'author';
-      const varName = which === 'author' ? '--col-author-width' : '--col-date-width';
+      const which = (h.dataset.columnResize ?? 'author') as 'graph' | 'hash' | 'author' | 'date';
       h.addEventListener('mousedown', (e) => {
         e.preventDefault();
         e.stopPropagation();
         const startX = e.clientX;
-        const startW = which === 'author' ? this.authorW : this.dateW;
+        const startW = this.colWidth(which);
         document.body.classList.add('resizing-column');
         h.classList.add('dragging');
-        const onMove = (ev: MouseEvent): void => {
-          const w = Math.max(MIN_COL_W, Math.min(MAX_COL_W, startW + ev.clientX - startX));
-          this.graphEl.style.setProperty(varName, `${w}px`);
-        };
+        const onMove = (ev: MouseEvent): void => this.setColWidth(which, startW + ev.clientX - startX);
         const onUp = (): void => {
           document.removeEventListener('mousemove', onMove);
           document.removeEventListener('mouseup', onUp);
           document.body.classList.remove('resizing-column');
           h.classList.remove('dragging');
-          this.authorW = this.clampCol(this.readColW(varName), AUTHOR_W);
-          this.dateW = this.clampCol(this.readColW('--col-date-width'), DATE_W);
           this.persistLayout();
         };
         document.addEventListener('mousemove', onMove);
@@ -503,14 +526,58 @@ export class GraphPanel {
         const step = e.key === 'ArrowLeft' ? -COL_KEY_STEP : e.key === 'ArrowRight' ? COL_KEY_STEP : 0;
         if (!step) return;
         e.preventDefault();
-        const cur = which === 'author' ? this.authorW : this.dateW;
-        const w = Math.max(MIN_COL_W, Math.min(MAX_COL_W, cur + step));
-        this.graphEl.style.setProperty(varName, `${w}px`);
-        if (which === 'author') this.authorW = w;
-        else this.dateW = w;
+        this.setColWidth(which, this.colWidth(which) + step);
+        this.persistLayout();
+      });
+      // 双击复位该列（图沟槽复位为「按 lane 数自适应压缩」）
+      h.addEventListener('dblclick', () => {
+        if (which === 'graph') this.laneW = undefined;
+        else if (which === 'hash') this.hashW = HASH_W;
+        else if (which === 'author') this.authorW = AUTHOR_W;
+        else this.dateW = DATE_W;
+        this.renderGraph();
         this.persistLayout();
       });
     });
+  }
+
+  /** 当前列宽（图沟槽 = 实际占用宽度，其余为列宽） */
+  private colWidth(which: 'graph' | 'hash' | 'author' | 'date'): number {
+    if (which === 'graph') return this.laneCount() * this.currentLaneW() + 6;
+    if (which === 'hash') return this.hashW;
+    return which === 'author' ? this.authorW : this.dateW;
+  }
+
+  /** 设置列宽（内部夹紧）：图沟槽换算成 lane 间距并触发重绘 */
+  private setColWidth(which: 'graph' | 'hash' | 'author' | 'date', w: number): void {
+    if (which === 'graph') {
+      const lanes = Math.max(1, this.laneCount());
+      const laneW = Math.max(LANE_W_MIN, Math.min(LANE_W_MAX, (w - 6) / lanes));
+      this.laneW = laneW;
+      this.renderGraph();
+      return;
+    }
+    if (which === 'hash') {
+      this.hashW = this.clamp(w, HASH_W, MIN_HASH_W, MAX_HASH_W);
+      this.graphEl.style.setProperty('--col-hash-width', `${this.hashW}px`);
+      return;
+    }
+    const varName = which === 'author' ? '--col-author-width' : '--col-date-width';
+    const next = this.clamp(w, which === 'author' ? AUTHOR_W : DATE_W, MIN_COL_W, MAX_COL_W);
+    if (which === 'author') this.authorW = next;
+    else this.dateW = next;
+    this.graphEl.style.setProperty(varName, `${next}px`);
+  }
+
+  private laneCount(): number {
+    if (!this.nodes.length) return 1;
+    return this.nodes.reduce((m, n) => Math.max(m, n.lane, ...n.parentLanes), 0) + 1;
+  }
+
+  /** 当前 lane 间距：用户拖过就用用户值，否则按 lane 数自适应压缩 */
+  private currentLaneW(): number {
+    if (typeof this.laneW === 'number' && Number.isFinite(this.laneW)) return this.laneW;
+    return autoLaneWidth(this.laneCount());
   }
 
   private readColW(varName: string): number {
@@ -520,7 +587,14 @@ export class GraphPanel {
   }
 
   private persistLayout(): void {
-    saveState({ ...(loadState<object>() ?? {}), paneW: this.paneW, authorW: this.authorW, dateW: this.dateW });
+    saveState({
+      ...(loadState<object>() ?? {}),
+      paneW: this.paneW,
+      laneW: this.laneW,
+      hashW: this.hashW,
+      authorW: this.authorW,
+      dateW: this.dateW,
+    });
   }
 
   private async reload(append = false): Promise<void> {
@@ -565,19 +639,21 @@ export class GraphPanel {
 
   private renderGraph(): void {
     const height = this.nodes.length * ROW_H + 10;
-    const laneCount =
-      this.nodes.reduce((m, n) => Math.max(m, n.lane, ...n.parentLanes), 0) + 1;
-    // 图沟槽宽：只放 lane 连线与节点；文本列全部由 HTML 行承载
-    const graphW = Math.max(60, laneCount * COL_W + 6);
+    const laneCount = this.laneCount();
+    // 图沟槽宽：只放 lane 连线与节点；lane 越多间距越小，尽量少占宽度（可拖拽微调）
+    const laneW = this.currentLaneW();
+    const graphW = graphWidth(laneCount, laneW);
+    const nodeR = nodeRadius(laneW);
     this.graphEl.style.setProperty('--graph-w', `${graphW}px`);
+    this.graphEl.style.setProperty('--col-hash-width', `${this.hashW}px`);
     (this.must('gp-canvas')).style.height = `${height}px`;
 
     const parts: string[] = [];
     // 连线：连到父提交的真实行（拓扑序里父提交可能隔着多行）
     for (const e of buildEdges(this.nodes)) {
-      const x1 = e.fromLane * COL_W + COL_W / 2;
+      const x1 = e.fromLane * laneW + laneW / 2;
       const y1 = e.fromRow * ROW_H + ROW_H / 2;
-      const x2 = e.toLane * COL_W + COL_W / 2;
+      const x2 = e.toLane * laneW + laneW / 2;
       const y2 = e.continues ? height - 4 : e.toRow * ROW_H + ROW_H / 2;
       if (e.fromLane === e.toLane) {
         parts.push(`<line x1="${x1}" y1="${y1}" x2="${x2}" y2="${y2}" class="edge"/>`);
@@ -600,11 +676,11 @@ export class GraphPanel {
     // 节点：按 lane 着色；HEAD 加粗描边，选中再加一圈
     this.nodes.forEach((node, row) => {
       const y = row * ROW_H + ROW_H / 2;
-      const x = node.lane * COL_W + COL_W / 2;
+      const x = node.lane * laneW + laneW / 2;
       const isHead = isHeadCommit(node.commit);
       const selected = this.selectedHash === node.commit.hash;
       const cls = `node${isHead ? ' head' : ''}${selected ? ' selected' : ''}`;
-      parts.push(`<circle cx="${x}" cy="${y}" r="${NODE_R}" class="${cls}" fill="${laneColor(node.lane)}"/>`);
+      parts.push(`<circle cx="${x}" cy="${y}" r="${nodeR}" class="${cls}" fill="${laneColor(node.lane)}"/>`);
     });
     this.graphSvgEl.innerHTML = `<svg width="${graphW}" height="${height}" viewBox="0 0 ${graphW} ${height}" class="graph-svg">${parts.join('')}</svg>`;
 

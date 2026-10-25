@@ -144,6 +144,38 @@ export function pickCompareRef(commit: CommitInfo): string {
   return commit.hash;
 }
 
+/* ---------- 图沟槽宽度（lane 间距 / 图宽 / 节点半径） ---------- */
+
+/** lane 区两侧各留的padding，合计进图沟槽宽 */
+export const GRAPH_PAD = 6;
+/** lane 间距最小值（再小节点会糊在一起） */
+export const LANE_W_MIN = 7;
+/** lane 间距最大值 */
+export const LANE_W_MAX = 28;
+/** 图沟槽最小宽（单 lane 也至少这么宽） */
+export const GRAPH_W_MIN = 22;
+
+/**
+ * 自适应 lane 间距：lane 越多间距越小，尽量压缩图沟槽占用的宽度
+ * （旧实现固定 18px，8 条 lane 就要 150px，挤占文本列）。
+ */
+export function autoLaneWidth(laneCount: number): number {
+  if (laneCount <= 2) return 15;
+  if (laneCount <= 4) return 13;
+  if (laneCount <= 6) return 11;
+  return 9;
+}
+
+/** lane 间距 → 图沟槽总宽 */
+export function graphWidth(laneCount: number, laneW: number): number {
+  return Math.max(GRAPH_W_MIN, laneCount * laneW + GRAPH_PAD);
+}
+
+/** 节点半径随 lane 间距收缩（间距 9px 时用 ~2.9px，避免圆点互相压住） */
+export function nodeRadius(laneW: number): number {
+  return Math.max(2.6, Math.min(5, laneW * 0.32));
+}
+
 export function computeLanes(commits: CommitInfo[]): GraphNode[] {
   /** lanes[i] = 该 lane 正在等待的 commit hash，null 表示空闲 */
   const lanes: (string | null)[] = [];
@@ -176,9 +208,22 @@ export function computeLanes(commits: CommitInfo[]): GraphNode[] {
     }
     commit.parents.forEach((parent, i) => {
       if (i === 0) {
-        // 第一父提交沿用当前 lane（无父提交时释放该 lane）
-        lanes[lane] = parent ?? null;
-        parentLanes.push(lane);
+        // 第一父提交沿用当前 lane（无父提交时释放该 lane）。
+        // 分叉点特例：父提交已经在**别的** lane 上等待（两个子提交共享同一父提交），
+        // 此时必须改用那条 lane 并释放当前 lane——否则会出现两个问题：
+        //   1. 两条 lane 等待同一个 hash，父提交落地只占第一条，另一条永远卡着旧 hash
+        //      （既不是 null 不会被 alloc 复用，又不在数组尾部不会被压缩弹出）
+        //      → 幻影列，每遇一个分叉点泄漏一列，图沟槽越用越宽；
+        //   2. 边会按 parentLanes 连到自己 lane 的下一行，而父节点其实在别的 lane
+        //      → 线断在半空、父节点缺入边。
+        const existing = lanes.indexOf(parent);
+        if (existing !== -1 && existing !== lane) {
+          lanes[lane] = null;
+          parentLanes.push(existing);
+        } else {
+          lanes[lane] = parent ?? null;
+          parentLanes.push(lane);
+        }
       } else {
         parentLanes.push(alloc(parent));
       }

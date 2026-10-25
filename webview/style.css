@@ -982,7 +982,11 @@ tr.d-del .d-text::before {
 
 .log-column-header-hash {
   flex: none;
-  width: 50px;
+  width: var(--col-hash-width, 50px);
+  padding-left: 4px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .log-column-header-title {
@@ -993,10 +997,15 @@ tr.d-del .d-text::before {
   white-space: nowrap;
 }
 
+/* 图沟槽手柄：位于 padding-left 边界上，负外边距让它跨在图列与提交号列之间 */
+.log-column-resize-handle.first {
+  margin-left: -3px;
+}
+
 .log-column-header-author {
   flex: none;
   width: var(--col-author-width, 120px);
-  padding-left: 12px;
+  padding-left: 10px;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -1005,7 +1014,7 @@ tr.d-del .d-text::before {
 .log-column-header-date {
   flex: none;
   width: var(--col-date-width, 145px);
-  padding-left: 12px;
+  padding-left: 10px;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;

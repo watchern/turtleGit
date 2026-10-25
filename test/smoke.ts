@@ -568,6 +568,59 @@ async function main(): Promise<void> {
       mk('r', []),
     ]);
     check('三分叉占据 3 条 lane', new Set([triple[1].lane, triple[2].lane, triple[3].lane]).size === 3, triple.map((n) => n.lane));
+
+    // 回归：分叉点泄漏幻影 lane（图沟槽越用越宽的真正原因）
+    // 每个 Pi 都有两个子提交（主干 Ti 与支线 Bi 共享同一父提交 Pi）→ 旧实现里
+    // 「两条 lane 同时等待 Pi」，Pi 落地只占第一条，另一条永久卡旧 hash 不再回收。
+    const chain: Array<[string, string]> = [];
+    const history: CommitInfo[] = [];
+    for (let i = 1; i <= 4; i++) {
+      const p = `p${i}`;
+      const next = i === 4 ? undefined : `p${i + 1}`;
+      history.push(mk(`t${i}`, [p]));
+      history.push(mk(`b${i}`, [p]));
+      history.push(mk(p, next ? [next] : []));
+      chain.push([`t${i}`, `b${i}`]);
+    }
+    const multi = computeLanes(history);
+    const maxLane = multi.reduce((m, n) => Math.max(m, n.lane), 0);
+    check('多分叉不累积幻影 lane', maxLane <= 1, { maxLane, lanes: multi.map((n) => n.lane) });
+    check(
+      '支线用完即释放（lane 总数 = 2）',
+      new Set(multi.map((n) => n.lane)).size === 2,
+      multi.map((n) => n.lane),
+    );
+
+    // 边必须落在父节点真正所在的 lane 上（否则线断在半空）
+    const multiEdges = buildEdges(multi);
+    const wrong: unknown[] = [];
+    multiEdges.forEach((e) => {
+      if (e.continues) return;
+      const parentRow = multi.findIndex((n) => n.commit.hash === multi[e.fromRow].commit.parents[0]);
+      const targetLane = parentRow >= 0 ? multi[parentRow].lane : -1;
+      if (parentRow >= 0 && targetLane !== e.toLane) wrong.push(e);
+    });
+    check('第一父提交的边连到父节点所在 lane', wrong.length === 0, wrong);
+  }
+
+  console.log('== 图沟槽宽度（autoLaneWidth / graphWidth / nodeRadius） ==');
+  {
+    const { autoLaneWidth, graphWidth, nodeRadius, GRAPH_PAD, GRAPH_W_MIN } = await import(
+      '../webview/graph/lanes'
+    );
+    check('lane 越少间距越大', autoLaneWidth(1) > autoLaneWidth(5), [autoLaneWidth(1), autoLaneWidth(5)]);
+    check('lane 多时压到 9px', autoLaneWidth(9) === 9, autoLaneWidth(9));
+    check('间距不低于 7px', autoLaneWidth(20) >= 7, autoLaneWidth(20));
+    check('图宽 = lane 数 × 间距 + padding', graphWidth(8, 10) === 8 * 10 + GRAPH_PAD, [graphWidth(8, 10), GRAPH_PAD]);
+    check('图宽有下限', graphWidth(1, 7) === GRAPH_W_MIN, [graphWidth(1, 7), GRAPH_W_MIN]);
+    check(
+      '压缩后 8 条 lane 明显变窄（旧固定 18px = 150px）',
+      graphWidth(8, autoLaneWidth(8)) < 8 * 18 + 6,
+      graphWidth(8, autoLaneWidth(8)),
+    );
+    check('节点半径随间距收缩', nodeRadius(9) < nodeRadius(15), [nodeRadius(9), nodeRadius(15)]);
+    check('节点半径有下限', nodeRadius(7) >= 2.6, nodeRadius(7));
+    check('节点半径不超过 5', nodeRadius(28) === 5, nodeRadius(28));
   }
 
   console.log('== 版本分支图几何（buildEdges / laneColor / badgeWidth） ==');
