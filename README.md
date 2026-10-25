@@ -120,3 +120,27 @@ pnpm run package # 打包 vsix
 ```
 
 测试为真实临时 git 仓库上的集成断言（`test/smoke.ts`，280 项），覆盖状态解析、部分提交、中文路径、日志/numstat、分支信息、跨平台路径工具、未跟踪文件 patch（含二进制/空文件/无末尾换行边界）、lane 算法与连线几何（含**分叉点幻影 lane 回归**与「边连到父节点所在 lane」）、图沟槽宽度纯函数（自适应间距/图宽/节点半径）、远程仓库管理与远程分支检出、远程仓 fetch 同步引用、stash 按文件查看、文件目录树、diff gap 折叠行渲染（含末尾省略区）、两侧文件行数统计、签署人与提交后推送、分支区间变更文件（rangeFiles）、日志列截断与搜索匹配与对比引用挑选纯函数、行内分支芯片排序与折叠（branchChips）、日期预设映射（sinceArg）、log 分支/时间过滤（branch/since 真实仓库）。
+
+## 发布（GitHub Actions）
+
+两个工作流位于 `.github/workflows/`：
+
+| 工作流 | 触发 | 做什么 |
+|---|---|---|
+| `ci.yml` | 推送到 main / PR | 类型检查 → 构建 → 冒烟测试 → 试打包，并上传 vsix 为构建产物 |
+| `release.yml` | 推送 `v*` 标签（或手动指定 tag） | 校验标签与 `package.json` 版本一致 → 类型检查 → 构建 → 冒烟测试 → 打包 → **创建 GitHub Release 并附上 vsix**；配了 `VSCE_PAT` 时再发布到 VS Code 市场 |
+
+发版步骤：
+
+```bash
+# 1) 改 package.json 版本号并同步 README（冒烟计数等）
+# 2) 提交
+git add -A && git commit -m "0.3.27：……"
+# 3) 打与版本一致的标签并推送（工作流据此发 Release）
+git tag v0.3.27 && git push origin v0.3.27
+```
+
+- 标签必须是 `v` + `package.json` 的 version（如 `v0.3.27`），不一致时工作流直接报错退出，避免发错版本。
+- Release 说明自动取「上一个标签 → 本次标签」的提交标题列表。
+- 只想出 GitHub Release 不需要任何秘钥；要同时发布到 VS Code 市场，在仓库 Settings → Secrets 里加 `VSCE_PAT`（Marketplace Personal Access Token），未配置时该步自动跳过。
+- 运行环境：ubuntu-latest + Node 22（`@vscode/vsce` 4.x 要求 Node ≥ 22）+ pnpm 9（锁文件 `lockfileVersion: 9.0`）。打包统一用 `node node_modules/@vscode/vsce/vsce package --no-dependencies`，与本地一致（嵌套 spawn npm 的依赖探测在受限环境里会失败）。

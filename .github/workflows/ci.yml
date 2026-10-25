@@ -1,0 +1,47 @@
+name: CI
+
+# 每次推送 / PR 都跑：类型检查 → 构建 → 真实 git 仓库冒烟测试 → 试打包。
+# 发布流程见 release.yml（打 v* 标签触发）。
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # lockfileVersion 9.0 → 用 pnpm 9 安装，保证与本地锁文件一致
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9
+
+      # vsce 4.x 要求 Node >= 22
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: 安装依赖
+        run: pnpm install --frozen-lockfile
+
+      - name: 类型检查
+        run: pnpm exec tsc --noEmit
+
+      - name: 构建（esbuild --production）
+        run: pnpm run build
+
+      - name: 冒烟测试（临时真实 git 仓库）
+        run: pnpm test
+
+      - name: 试打包 vsix
+        run: node node_modules/@vscode/vsce/vsce package --no-dependencies
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: turtlegit-vsix
+          path: '*.vsix'
+          if-no-files-found: error

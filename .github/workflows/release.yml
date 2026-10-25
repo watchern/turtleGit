@@ -1,0 +1,98 @@
+name: Release
+
+# 发布：推送 v* 标签自动打包并创建 GitHub Release（附 vsix）；
+# 配了 VSCE_PAT 秘钥时顺带发布到 VS Code 市场。
+# 用法：
+#   package.json 改版本号 → README 同步 → 提交 →
+#   git tag v0.3.27 && git push origin v0.3.27
+# 标签必须与 package.json 版本一致（v + version），否则工作流会直接报错退出。
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 要发布的标签（如 v0.3.27），留空则用当前 ref
+        required: false
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    env:
+      INPUT_TAG: ${{ inputs.tag }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # 生成发布说明需要完整历史与标签
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: 安装依赖
+        run: pnpm install --frozen-lockfile
+
+      - name: 校验标签与 package.json 版本一致
+        run: |
+          set -euo pipefail
+          if [ -n "${INPUT_TAG:-}" ]; then TAG="$INPUT_TAG"; else TAG="$GITHUB_REF_NAME"; fi
+          VERSION="$(node -p "require('./package.json').version")"
+          echo "tag=$TAG package.json version=$VERSION"
+          if [ "$TAG" != "v$VERSION" ]; then
+            echo "::error::标签 $TAG 与 package.json 版本 $VERSION 不一致（应为 v$VERSION）"
+            exit 1
+          fi
+          echo "TAG=$TAG" >> "$GITHUB_ENV"
+          echo "VERSION=$VERSION" >> "$GITHUB_ENV"
+
+      - name: 类型检查
+        run: pnpm exec tsc --noEmit
+
+      - name: 构建
+        run: pnpm run build
+
+      - name: 冒烟测试
+        run: pnpm test
+
+      - name: 打包 vsix
+        run: node node_modules/@vscode/vsce/vsce package --no-dependencies
+
+      - name: 生成发布说明（相对上一个标签的提交列表）
+        run: |
+          set -euo pipefail
+          PREV="$(git describe --tags --abbrev=0 "${TAG}^" 2>/dev/null || true)"
+          if [ -n "$PREV" ]; then
+            git log --pretty='- %s' "$PREV..$TAG" > notes.md
+          else
+            git log --pretty='- %s' -n 30 "$TAG" > notes.md
+          fi
+          cat notes.md
+
+      - name: 创建 GitHub Release 并上传 vsix
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          if [ -s notes.md ]; then
+            gh release create "$TAG" --title "TurtleGit $TAG" --notes-file notes.md "turtlegit-$VERSION.vsix"
+          else
+            gh release create "$TAG" --title "TurtleGit $TAG" --generate-notes "turtlegit-$VERSION.vsix"
+          fi
+
+      - name: 发布到 VS Code 市场（可选）
+        env:
+          VSCE_PAT: ${{ secrets.VSCE_PAT }}
+        run: |
+          set -euo pipefail
+          if [ -z "${VSCE_PAT:-}" ]; then
+            echo "未配置 VSCE_PAT 秘钥：只创建 GitHub Release，跳过市场发布"
+            exit 0
+          fi
+          node node_modules/@vscode/vsce/vsce publish --no-dependencies -p "$VSCE_PAT"

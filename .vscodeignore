@@ -1,6 +1,7 @@
 .vscode/**
 .workbuddy/**
 .git/**
+.github/**
 .history/**
 test/**
 dist-test/**
