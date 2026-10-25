@@ -1,22 +1,25 @@
 name: Release
 
-# 发布：推送 v* 标签自动打包并创建 GitHub Release（附 vsix）；
-# 配了 VSCE_PAT 秘钥时顺带发布到 VS Code 市场。
+# 发布：只在推送 v* 标签时发布（推送 master / 提 PR 都【不会】发布，那两种只跑 ci.yml 做校验）。
 # 用法：
 #   package.json 改版本号 → README 同步 → 提交 →
 #   git tag v0.3.27 && git push origin v0.3.27
-# 标签必须与 package.json 版本一致（v + version），否则工作流会直接报错退出。
+# 标签必须与 package.json 版本一致（v + version），否则工作流直接报错退出。
+# 手动触发（workflow_dispatch）不填 tag 时，按当前 package.json 版本发。
 on:
   push:
-    tags: ['v*']
+    tags: ['v*'] # 只匹配标签；不要加 branches，否则推 master 也会发版
   workflow_dispatch:
     inputs:
       tag:
-        description: 要发布的标签（如 v0.3.27），留空则用当前 ref
+        description: 要发布的标签（如 v0.3.27）；留空则按 package.json 当前版本发
         required: false
 
 jobs:
   release:
+    # 双重保险：push 侧只订阅了 tags，这里再校验一次 ref，
+    # 万一以后加了 branches / 其他触发方式也不会误发布。
+    if: startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -41,11 +44,19 @@ jobs:
       - name: 校验标签与 package.json 版本一致
         run: |
           set -euo pipefail
-          if [ -n "${INPUT_TAG:-}" ]; then TAG="$INPUT_TAG"; else TAG="$GITHUB_REF_NAME"; fi
           VERSION="$(node -p "require('./package.json').version")"
+          WANT="v$VERSION"
+          if [ -n "${INPUT_TAG:-}" ]; then
+            TAG="$INPUT_TAG"
+          elif [ "${GITHUB_REF_TYPE:-}" = "tag" ]; then
+            TAG="$GITHUB_REF_NAME"
+          else
+            # 手动触发且未填标签 → 按当前 package.json 版本发
+            TAG="$WANT"
+          fi
           echo "tag=$TAG package.json version=$VERSION"
-          if [ "$TAG" != "v$VERSION" ]; then
-            echo "::error::标签 $TAG 与 package.json 版本 $VERSION 不一致（应为 v$VERSION）"
+          if [ "$TAG" != "$WANT" ]; then
+            echo "::error::标签 $TAG 与 package.json 版本 $VERSION 不一致（应为 $WANT）"
             exit 1
           fi
           echo "TAG=$TAG" >> "$GITHUB_ENV"
@@ -66,11 +77,16 @@ jobs:
       - name: 生成发布说明（相对上一个标签的提交列表）
         run: |
           set -euo pipefail
-          PREV="$(git describe --tags --abbrev=0 "${TAG}^" 2>/dev/null || true)"
-          if [ -n "$PREV" ]; then
-            git log --pretty='- %s' "$PREV..$TAG" > notes.md
+          # 手动触发时标签可能还没推到远端（本地也不存在），此时回退到 HEAD 的最近提交
+          if git rev-parse -q --verify "refs/tags/$TAG" >/dev/null; then
+            PREV="$(git describe --tags --abbrev=0 "${TAG}^" 2>/dev/null || true)"
+            if [ -n "$PREV" ]; then
+              git log --pretty='- %s' "$PREV..$TAG" > notes.md
+            else
+              git log --pretty='- %s' -n 30 "$TAG" > notes.md
+            fi
           else
-            git log --pretty='- %s' -n 30 "$TAG" > notes.md
+            git log --pretty='- %s' -n 30 > notes.md
           fi
           cat notes.md
 

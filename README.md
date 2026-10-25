@@ -128,7 +128,9 @@ pnpm run package # 打包 vsix
 | 工作流 | 触发 | 做什么 |
 |---|---|---|
 | `ci.yml` | 推送到 main / PR | 类型检查 → 构建 → 冒烟测试 → 试打包，并上传 vsix 为构建产物 |
-| `release.yml` | 推送 `v*` 标签（或手动指定 tag） | 校验标签与 `package.json` 版本一致 → 类型检查 → 构建 → 冒烟测试 → 打包 → **创建 GitHub Release 并附上 vsix**；配了 `VSCE_PAT` 时再发布到 VS Code 市场 |
+| `release.yml` | **仅**推送 `v*` 标签（或手动指定 tag） | 校验标签与 `package.json` 版本一致 → 类型检查 → 构建 → 冒烟测试 → 打包 → **创建 GitHub Release 并附上 vsix**；配了 `VSCE_PAT` 时再发布到 VS Code 市场 |
+
+> 推送 master / 提 PR **不会发布**，只跑 `ci.yml` 做校验；只有推送 `v*` 标签才会发版。`release.yml` 的 `on.push` 只写了 `tags: ['v*']`（不要加 `branches`），并在 job 上再加了一道 `if: startsWith(github.ref, 'refs/tags/v')` 保险。
 
 发版步骤：
 
