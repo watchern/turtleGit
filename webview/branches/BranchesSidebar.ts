@@ -174,7 +174,7 @@ export class BranchesSidebar {
             .map(([name, list]) => {
               const open = !this.remoteCollapsed.has(name);
               return `<div class="br-sub" data-remote="${escAttr(name)}">
-  <div class="br-subhead"><span class="twisty">${open ? '▾' : '▸'}</span><span class="br-sub-name">${esc(name)}</span><span class="count">（${list.length}）</span></div>
+  <div class="br-subhead" title="远程仓库 ${escAttr(name)}（${list.length} 个远程分支）"><span class="twisty">${open ? '▾' : '▸'}</span><span class="br-rem-ico">${ICONS.remoteIco}</span><span class="br-sub-name">${esc(name)}</span><span class="count">（${list.length}）</span></div>
   ${open ? `<div class="br-rows">${list.map((b) => this.branchRow(b)).join('')}</div>` : ''}
 </div>`;
             })
@@ -336,10 +336,14 @@ export class BranchesSidebar {
   private async checkout(name: string): Promise<void> {
     const b = this.branches.find((x) => x.name === name);
     if (b?.isCurrent) return;
+    // 切换分支会改动工作区文件，误点代价大 —— 二次确认
+    if (!(await this.confirm(`确定切换到分支「${name}」？`))) return;
     await this.run('检出', () => this.client.send('branch:checkout', { repoRoot: this.repoRoot, ref: name }), `已切换到 ${name}`);
   }
 
   private async checkoutRemote(name: string): Promise<void> {
+    // 远程分支检出会新建/切换本地跟踪分支，同样先确认
+    if (!(await this.confirm(`确定检出远程分支「${name}」？\n若本地尚无同名分支，将新建本地分支并跟踪该远程分支。`))) return;
     await this.run(
       '检出远程分支',
       async () => {

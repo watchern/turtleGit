@@ -1378,6 +1378,39 @@ async function main(): Promise<void> {
       /position:\s*sticky/.test(ruleBody('.log-column-header')),
       ruleBody('.log-column-header'),
     );
+
+    // 分隔符归属：每个分隔符调整它「左侧」那一列（图沟槽|提交|消息|作者|日期）
+    check('消息列是定宽列（跟随 --col-subject-width）', /width:\s*var\(--col-subject-width/.test(ruleBody('.commit-title')), ruleBody('.commit-title'));
+    check('表头消息列与行内同宽', /width:\s*var\(--col-subject-width/.test(ruleBody('.log-column-header-title')), ruleBody('.log-column-header-title'));
+    check(
+      '日期列是吸收剩余空间的弹性列（前面的列宽之和 = 其左边缘，分隔符才归位到作者列）',
+      /flex:\s*1\s+1\s+auto/.test(ruleBody('.commit-date')) && /flex:\s*1\s+1\s+auto/.test(ruleBody('.log-column-header-date')),
+      ruleBody('.commit-date'),
+    );
+    const iTitle = panelSrc.indexOf('class="log-column-header-title"');
+    const iAuthor = panelSrc.indexOf('class="log-column-header-author"');
+    const iDate = panelSrc.indexOf('class="log-column-header-date"');
+    const iHSubject = panelSrc.indexOf('data-column-resize="subject"');
+    const iHAuthor = panelSrc.indexOf('data-column-resize="author"');
+    check(
+      '(消息|作者) 分隔符调整消息列（句柄夹在两列之间且标记为 subject）',
+      iTitle !== -1 && iAuthor !== -1 && iHSubject > iTitle && iHSubject < iAuthor,
+      `title@${iTitle} hSubject@${iHSubject} author@${iAuthor}`,
+    );
+    check(
+      '(作者|日期) 分隔符调整作者列（句柄夹在两列之间且标记为 author）',
+      iAuthor !== -1 && iDate !== -1 && iHAuthor > iAuthor && iHAuthor < iDate,
+      `author@${iAuthor} hAuthor@${iHAuthor} date@${iDate}`,
+    );
+    check('不再有 date 句柄（日期列改为吸收剩余空间）', !panelSrc.includes('data-column-resize="date"'));
+
+    // 图面板专用 .commit-row 必须加作用域：否则日志/提交列表也会被套上
+    // padding-left:var(--graph-w)（那些面板 --graph-w 未定义 → 回落 60px，hash 前一片空白）
+    check(
+      '图面板 .commit-row 已收窄到 .gp-rows（不污染日志面板）',
+      /\.gp-rows \.commit-row \{/.test(css) &&
+        !/(^|\n)\.commit-row \{[^}]*padding-left:\s*var\(--graph-w/.test(css),
+    );
   }
 
   if (failures > 0) {

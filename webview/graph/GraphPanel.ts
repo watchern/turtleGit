@@ -23,6 +23,9 @@ import { BranchEntry, CommitFile, CommitInfo } from '../../shared/protocol';
 const ROW_H = 26;
 /** hash 文本列（等宽 11px，shortHash 7 字符）——表头与行共用 */
 const HASH_W = 50;
+/** 消息列默认宽：可拖拽的固定宽列（此前是 flex:1 弹性列，导致分隔符归属
+ *  与「分隔线调整左侧列」的直觉相反；150 与默认面板宽下原本分到的空间相当） */
+const SUBJECT_W = 150;
 /** 作者 / 日期列默认宽（与 Intellig log 表一致） */
 const AUTHOR_W = 120;
 const DATE_W = 145;
@@ -42,10 +45,17 @@ interface GraphLayout {
   /** lane 间距（px）；undefined = 按 lane 数自适应压缩 */
   laneW?: number;
   hashW: number;
+  subjectW: number;
   authorW: number;
   dateW: number;
 }
-const DEFAULT_LAYOUT: GraphLayout = { paneW: 460, hashW: HASH_W, authorW: AUTHOR_W, dateW: DATE_W };
+const DEFAULT_LAYOUT: GraphLayout = {
+  paneW: 460,
+  hashW: HASH_W,
+  subjectW: SUBJECT_W,
+  authorW: AUTHOR_W,
+  dateW: DATE_W,
+};
 
 /** 「与当前分支对比」状态 */
 interface CompareState {
@@ -122,6 +132,7 @@ export class GraphPanel {
   /** undefined = 按 lane 数自适应（压缩图沟槽占用） */
   private laneW: number | undefined;
   private hashW = DEFAULT_LAYOUT.hashW;
+  private subjectW = DEFAULT_LAYOUT.subjectW;
   private authorW = DEFAULT_LAYOUT.authorW;
   private dateW = DEFAULT_LAYOUT.dateW;
 
@@ -153,6 +164,7 @@ export class GraphPanel {
         ? Math.max(LANE_W_MIN, Math.min(LANE_W_MAX, Math.round(saved.laneW)))
         : undefined;
     this.hashW = this.clamp(saved?.hashW, HASH_W, MIN_HASH_W, MAX_HASH_W);
+    this.subjectW = this.clampCol(saved?.subjectW, SUBJECT_W);
     this.authorW = this.clampCol(saved?.authorW, AUTHOR_W);
     this.dateW = this.clampCol(saved?.dateW, DATE_W);
     this.el.innerHTML = `
@@ -163,7 +175,7 @@ export class GraphPanel {
   <button id="btn-more" class="mini" title="加载更多">加载更多</button>
 </div>
 <div class="split" id="split">
-  <section class="pane left graph-pane" id="graph-pane" style="width:${this.paneW}px; --col-author-width:${this.authorW}px; --col-date-width:${this.dateW}px; --col-hash-width:${this.hashW}px; --graph-w:60px">
+  <section class="pane left graph-pane" id="graph-pane" style="width:${this.paneW}px; --col-author-width:${this.authorW}px; --col-date-width:${this.dateW}px; --col-hash-width:${this.hashW}px; --col-subject-width:${this.subjectW}px; --graph-w:60px">
     <div class="log-filter-row">
       <div class="log-filter-search">
         <input type="search" id="flt-search" class="log-filter-search-input" placeholder="搜索 哈希/消息/作者/引用" title="搜索（Ctrl+F 聚焦，回车下一个，Shift+回车上一个）">
@@ -209,9 +221,9 @@ export class GraphPanel {
           <div class="log-column-header-hash">提交</div>
           <div class="log-column-resize-handle" data-column-resize="hash" role="separator" aria-label="调整提交号列宽" tabindex="0" title="拖拽或方向键（±10px）调整提交号列宽；双击复位"></div>
           <div class="log-column-header-title">消息</div>
-          <div class="log-column-resize-handle" data-column-resize="author" role="separator" aria-label="调整作者列宽" tabindex="0" title="拖拽或方向键（±10px）调整作者列宽（消息列随之伸缩）；双击复位"></div>
+          <div class="log-column-resize-handle" data-column-resize="subject" role="separator" aria-label="调整消息列宽" tabindex="0" title="拖拽或方向键（±10px）调整消息列宽；双击复位"></div>
           <div class="log-column-header-author">作者</div>
-          <div class="log-column-resize-handle" data-column-resize="date" role="separator" aria-label="调整日期列宽" tabindex="0" title="拖拽或方向键（±10px）调整日期列宽；双击复位"></div>
+          <div class="log-column-resize-handle" data-column-resize="author" role="separator" aria-label="调整作者列宽" tabindex="0" title="拖拽或方向键（±10px）调整作者列宽；双击复位"></div>
           <div class="log-column-header-date">日期</div>
         </div>
       </div>
@@ -505,11 +517,15 @@ export class GraphPanel {
   /**
    * 各列宽由 CSS 变量驱动，拖拽时只 setProperty 即可（表头与全部行即时跟随，无需重渲染）；
    * 只有图沟槽例外——lane 间距变了要重排 SVG 里的连线与节点，故需 renderGraph。
-   * 消息列是弹性列（flex:1），宽度 = 剩余空间，通过其两侧的列宽反向调节。
+   *
+   * 分隔符归属：**每个分隔符调整它左侧那一列**（图沟槽 | 提交 | 消息 | 作者 | 日期）。
+   * 消息列是定宽可拖拽列（不再是 flex:1 弹性列），日期列是最后的弹性列、吸收剩余空间，
+   * 因此「前面各列宽度之和」= 日期左边缘，(作者|日期) 分隔符才会真正控制作者列宽，
+   * 且所有分隔线都跟随鼠标（此前消息列弹性 + 右侧两列右对齐，拖拽方向是反转的）。
    */
   private bindColumnResize(): void {
     this.graphEl.querySelectorAll<HTMLElement>('.log-column-resize-handle').forEach((h) => {
-      const which = (h.dataset.columnResize ?? 'author') as 'graph' | 'hash' | 'author' | 'date';
+      const which = (h.dataset.columnResize ?? 'subject') as 'graph' | 'hash' | 'subject' | 'author';
       h.addEventListener('mousedown', (e) => {
         e.preventDefault();
         e.stopPropagation();
@@ -540,8 +556,8 @@ export class GraphPanel {
       h.addEventListener('dblclick', () => {
         if (which === 'graph') this.laneW = undefined;
         else if (which === 'hash') this.hashW = HASH_W;
-        else if (which === 'author') this.authorW = AUTHOR_W;
-        else this.dateW = DATE_W;
+        else if (which === 'subject') this.subjectW = SUBJECT_W;
+        else this.authorW = AUTHOR_W;
         this.renderGraph();
         this.persistLayout();
       });
@@ -549,15 +565,15 @@ export class GraphPanel {
   }
 
   /** 当前列宽（图沟槽 = 实际占用宽度，其余为列宽） */
-  private colWidth(which: 'graph' | 'hash' | 'author' | 'date'): number {
+  private colWidth(which: 'graph' | 'hash' | 'subject' | 'author'): number {
     // 与实际渲染宽度同源（含 GRAPH_W_MIN 下限），否则拖拽起点会偏
     if (which === 'graph') return graphWidth(this.laneCount(), this.currentLaneW());
     if (which === 'hash') return this.hashW;
-    return which === 'author' ? this.authorW : this.dateW;
+    return which === 'subject' ? this.subjectW : this.authorW;
   }
 
   /** 设置列宽（内部夹紧）：图沟槽换算成 lane 间距并触发重绘 */
-  private setColWidth(which: 'graph' | 'hash' | 'author' | 'date', w: number): void {
+  private setColWidth(which: 'graph' | 'hash' | 'subject' | 'author', w: number): void {
     if (which === 'graph') {
       const lanes = Math.max(1, this.laneCount());
       const laneW = Math.max(LANE_W_MIN, Math.min(LANE_W_MAX, (w - 6) / lanes));
@@ -570,10 +586,10 @@ export class GraphPanel {
       this.graphEl.style.setProperty('--col-hash-width', `${this.hashW}px`);
       return;
     }
-    const varName = which === 'author' ? '--col-author-width' : '--col-date-width';
-    const next = this.clamp(w, which === 'author' ? AUTHOR_W : DATE_W, MIN_COL_W, MAX_COL_W);
-    if (which === 'author') this.authorW = next;
-    else this.dateW = next;
+    const varName = which === 'subject' ? '--col-subject-width' : '--col-author-width';
+    const next = this.clamp(w, which === 'subject' ? SUBJECT_W : AUTHOR_W, MIN_COL_W, MAX_COL_W);
+    if (which === 'subject') this.subjectW = next;
+    else this.authorW = next;
     this.graphEl.style.setProperty(varName, `${next}px`);
   }
 
@@ -600,6 +616,7 @@ export class GraphPanel {
       paneW: this.paneW,
       laneW: this.laneW,
       hashW: this.hashW,
+      subjectW: this.subjectW,
       authorW: this.authorW,
       dateW: this.dateW,
     });
@@ -654,6 +671,7 @@ export class GraphPanel {
     const nodeR = nodeRadius(laneW);
     this.graphEl.style.setProperty('--graph-w', `${graphW}px`);
     this.graphEl.style.setProperty('--col-hash-width', `${this.hashW}px`);
+    this.graphEl.style.setProperty('--col-subject-width', `${this.subjectW}px`);
     (this.must('gp-canvas')).style.height = `${height}px`;
 
     const parts: string[] = [];
@@ -757,8 +775,7 @@ export class GraphPanel {
     return `<div class="commit-row${selected ? ' selected' : ''}${hit ? ' hit' : ''}" data-hash="${c.hash}" data-row="${row}" role="option" tabindex="0" aria-selected="${selected}">
   <div class="commit-info">
     <span class="commit-hash" title="${c.hash}">${c.shortHash}</span>
-    <div class="commit-title" title="${this.escAttr(c.subject)}">${this.esc(c.subject)}</div>
-    <div class="commit-branches" style="--chip-color:${color}">${chipsHtml}${collapsedHtml}</div>
+    <div class="commit-title" title="${this.escAttr(c.subject)}"><span class="commit-subject">${this.esc(c.subject)}</span><div class="commit-branches" style="--chip-color:${color}">${chipsHtml}${collapsedHtml}</div></div>
     <span class="commit-author" title="${this.escAttr(c.author)} &lt;${this.escAttr(c.authorEmail)}&gt;">${this.esc(c.author)}</span>
     <span class="commit-date" title="${this.escAttr(dateFull)}">${this.esc(fmtDate(c.authorDate))}</span>
   </div>

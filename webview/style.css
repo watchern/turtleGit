@@ -1135,8 +1135,10 @@ body.vscode-high-contrast-light {
   white-space: nowrap;
 }
 
+/* 与行内 .commit-title 同宽（可拖拽的固定宽列），保证表头与行逐列对齐 */
 .log-column-header-title {
-  flex: 1;
+  flex: 0 1 auto;
+  width: var(--col-subject-width, 150px);
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -1153,9 +1155,11 @@ body.vscode-high-contrast-light {
   white-space: nowrap;
 }
 
+/* 与行内 .commit-date 一致：吸收剩余空间的弹性列，放在最后 */
 .log-column-header-date {
-  flex: none;
+  flex: 1 1 auto;
   width: var(--col-date-width, 145px);
+  min-width: 0;
   padding-left: 12px;
   text-align: left;
   overflow: hidden;
@@ -1261,7 +1265,12 @@ body.resizing-column {
 }
 
 /* ---------- 提交行（Intellig commit-row：24px 行高 + flex 列） ---------- */
-.commit-row {
+/* 仅作用于图面板的提交行：日志/提交等列表也用 .commit-row，但它们是
+   「两行块布局」（.commit-line1 + .commit-line2），下面的 flex + 定高 +
+   padding-left:var(--graph-w) 只属于版本分支图——曾经因为没加作用域，
+   日志对话框的 --graph-w 未定义而回落 60px，hash 前出现一片空白，且行被压成
+   单行 26px。故一律收窄到 .gp-rows 下。 */
+.gp-rows .commit-row {
   display: flex;
   align-items: center;
   height: 26px;
@@ -1271,21 +1280,21 @@ body.resizing-column {
   user-select: none;
 }
 
-.commit-row:hover {
+.gp-rows .commit-row:hover {
   background: var(--hover);
 }
 
-.commit-row.selected {
+.gp-rows .commit-row.selected {
   background: color-mix(in srgb, var(--focus) 25%, transparent);
   background: rgba(0, 127, 212, 0.25);
 }
 
-.commit-row.hit {
+.gp-rows .commit-row.hit {
   background: color-mix(in srgb, var(--focus) 14%, transparent);
   background: rgba(0, 127, 212, 0.14);
 }
 
-.commit-row:focus-visible {
+.gp-rows .commit-row:focus-visible {
   outline: 1px solid var(--focus);
   outline-offset: -1px;
 }
@@ -1311,23 +1320,39 @@ body.resizing-column {
   white-space: nowrap;
 }
 
-.commit-row.selected .commit-hash {
+.gp-rows .commit-row.selected .commit-hash {
   color: var(--fg);
 }
 
+/* 消息列：改为「可拖拽的固定宽列」。此前是 flex:1 弹性列，后果是
+   (消息|作者) 分隔符实际调的是作者、(作者|日期) 调的是日期——与「分隔符调整它
+   左侧那一列」的直觉相反；且右侧两列是右对齐定宽列，拖拽方向还会反转（往右拖
+   分隔线反而左移）。改为定宽后每个分隔符都调整其左侧列，且分隔线跟随鼠标。
+   分支芯片移入本列内部（见 .commit-branches），否则各行芯片宽度不同会让
+   作者列左边缘逐行错位。 */
 .commit-title {
-  flex: 1;
+  flex: 0 1 auto;
+  width: var(--col-subject-width, 150px);
   min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 6px;
   overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
   font-size: 12px;
   line-height: 24px;
   text-align: left;
 }
 
-/* 分支芯片槽：位于消息与作者列之间，必须可收缩（flex-shrink:1 + max-width），
-   否则多 ref 提交会把作者/日期列挤出右边界（Intellig 同款教训） */
+.commit-subject {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* 分支芯片槽：位于消息列内部（此前是消息与作者之间的独立 flex 项——
+   每行芯片宽度不同，会让各行作者列左边缘错位）。max-width 相对消息列计算。 */
 .commit-branches {
   display: flex;
   flex-shrink: 1;
@@ -1336,7 +1361,6 @@ body.resizing-column {
   overflow: hidden;
   align-items: center;
   gap: 4px;
-  margin-right: 8px;
 }
 
 .commit-branches:empty {
@@ -1355,9 +1379,13 @@ body.resizing-column {
   white-space: nowrap;
 }
 
+/* 日期列：吸收剩余空间的弹性列（放在最后）。这样「前面各列宽度之和」就是
+   日期左边缘，(作者|日期) 分隔符才真正控制「作者」列宽；同时不留尾部空白。
+   空间不足时可被压缩（flex-shrink:1），不会把行撑出横向滚动条。 */
 .commit-date {
-  flex: none;
+  flex: 1 1 auto;
   width: var(--col-date-width, 145px);
+  min-width: 0;
   font-size: 11px;
   color: var(--muted);
   text-align: left;
@@ -1368,8 +1396,8 @@ body.resizing-column {
 }
 
 /* 选中行：次要文字（作者/日期/哈希）随选中态提亮，避免半透明底上发灰 */
-.commit-row.selected .commit-author,
-.commit-row.selected .commit-date {
+.gp-rows .commit-row.selected .commit-author,
+.gp-rows .commit-row.selected .commit-date {
   color: var(--fg);
 }
 
@@ -2078,17 +2106,31 @@ button.icon:hover {
   color: var(--muted);
 }
 
+/* 远程仓名是「父级」：加粗 + 前置地球图标，其下的分支行再缩进一层
+   （此前 .br-subhead 与 .br-row 左内边距都是 6px，看起来是同一级，难以区分） */
 .br-subhead {
   display: flex;
   align-items: center;
   gap: 6px;
-  padding: 3px 0 3px 6px;
+  padding: 4px 0 4px 6px;
   cursor: pointer;
+  color: var(--fg);
+  font-weight: 600;
+}
+
+.br-rem-ico {
+  display: inline-flex;
+  flex: none;
   color: var(--muted);
 }
 
 .br-sub-name {
   color: var(--fg);
+}
+
+/* 挂在远程仓名下的分支行：再缩进一层，形成清晰的父子层级 */
+.br-sub .br-row {
+  padding-left: 22px;
 }
 
 .br-rem {
@@ -2327,17 +2369,31 @@ button.mini.icon svg {
   color: var(--muted);
 }
 
+/* 远程仓名是「父级」：加粗 + 前置地球图标，其下的分支行再缩进一层
+   （此前 .br-subhead 与 .br-row 左内边距都是 6px，看起来是同一级，难以区分） */
 .br-subhead {
   display: flex;
   align-items: center;
   gap: 6px;
-  padding: 3px 0px 3px 6px;
+  padding: 4px 0 4px 6px;
   cursor: pointer;
+  color: var(--fg);
+  font-weight: 600;
+}
+
+.br-rem-ico {
+  display: inline-flex;
+  flex: none;
   color: var(--muted);
 }
 
 .br-sub-name {
   color: var(--fg);
+}
+
+/* 挂在远程仓名下的分支行：再缩进一层，形成清晰的父子层级 */
+.br-sub .br-row {
+  padding-left: 22px;
 }
 
 .br-row {

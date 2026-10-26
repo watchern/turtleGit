@@ -89,6 +89,10 @@ export class GitRunner {
 
       const timer = opts.timeoutMs
         ? setTimeout(() => {
+            // 子进程其实已经退出、只是 close 事件还在排队（机器负载极重时事件循环
+            // 被饿死会出现这种情况）→ 不能算超时，否则会把一次成功完成的命令
+            // （code 0 + 完整 stdout）误判成超时。已退出就放过，等 close 正常 resolve。
+            if (child.exitCode !== null || child.signalCode !== null) return;
             timedOut = true;
             child.kill('SIGKILL');
           }, opts.timeoutMs)
@@ -115,7 +119,9 @@ export class GitRunner {
           stderr: Buffer.concat(stderr).toString('utf8'),
           stdoutRaw: raw,
         };
-        if (timedOut) {
+        // 退出码为 0 = 命令干净地跑完了（被 SIGKILL 的进程退出码不会是 0），
+        // 即使因事件循环饿死被误标了 timedOut，也应按成功返回。
+        if (timedOut && result.code !== 0) {
           reject(new GitRunnerError(`git 命令超时：git ${args.join(' ')}`, result));
         } else {
           resolve(result);
