@@ -2,7 +2,7 @@
   "name": "turtlegit",
   "displayName": "TurtleGit - TortoiseGit 风格的跨平台 Git 增强",
   "description": "在 VSCode 中复刻 TortoiseGit 的提交、浏览、对比体验：独立浮窗对话框、提交图、按块勾选提交。纯插件实现，不依赖 TortoiseGit，Linux/macOS/Windows 通用。",
-  "version": "0.3.28",
+  "version": "0.3.29",
   "packageManager": "pnpm@11.24.0",
   "publisher": "turtlegit",
   "license": "MIT",

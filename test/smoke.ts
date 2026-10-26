@@ -1362,6 +1362,22 @@ async function main(): Promise<void> {
       handle,
     );
     check('color-mix 用法都有 rgba 兜底或经 @supports 保护', /@supports \(background: color-mix/.test(css));
+
+    // 表头必须在滚动容器内部：在外面时表头是整宽、行被竖向滚动条挤窄，
+    // 右侧作者/日期列会整体偏移一个滚动条宽度，且 sticky 因就近滚动祖先不对而失效。
+    const panelSrc = fs.readFileSync(path.join(__dirname, '..', 'webview', 'graph', 'GraphPanel.ts'), 'utf8');
+    const scrollIdx = panelSrc.indexOf('class="graph-scroll"');
+    const headerIdx = panelSrc.indexOf('class="log-column-header"');
+    check(
+      '表头位于滚动容器内部（与行同宽、sticky 生效）',
+      scrollIdx !== -1 && headerIdx !== -1 && headerIdx > scrollIdx,
+      `scroll@${scrollIdx} header@${headerIdx}`,
+    );
+    check(
+      '表头为 sticky 定位（就近滚动祖先即 .graph-scroll）',
+      /position:\s*sticky/.test(ruleBody('.log-column-header')),
+      ruleBody('.log-column-header'),
+    );
   }
 
   if (failures > 0) {

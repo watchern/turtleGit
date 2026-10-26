@@ -199,19 +199,22 @@ export class GraphPanel {
       <input type="search" id="flt-grep" class="filter" placeholder="信息关键字">
       <label class="chk"><input type="checkbox" id="chk-nomerge"> 排除合并</label>
     </div>
-    <div class="log-column-header">
-      <div class="log-column-header-info">
-        <div class="log-column-resize-handle first" data-column-resize="graph" role="separator" aria-label="调整图沟槽宽（lane 间距）" tabindex="0" title="拖拽或方向键（±10px）调整图沟槽宽；双击复位为自适应压缩"></div>
-        <div class="log-column-header-hash">提交</div>
-        <div class="log-column-resize-handle" data-column-resize="hash" role="separator" aria-label="调整提交号列宽" tabindex="0" title="拖拽或方向键（±10px）调整提交号列宽；双击复位"></div>
-        <div class="log-column-header-title">消息</div>
-        <div class="log-column-resize-handle" data-column-resize="author" role="separator" aria-label="调整作者列宽" tabindex="0" title="拖拽或方向键（±10px）调整作者列宽（消息列随之伸缩）；双击复位"></div>
-        <div class="log-column-header-author">作者</div>
-        <div class="log-column-resize-handle" data-column-resize="date" role="separator" aria-label="调整日期列宽" tabindex="0" title="拖拽或方向键（±10px）调整日期列宽；双击复位"></div>
-        <div class="log-column-header-date">日期</div>
-      </div>
-    </div>
+    <!-- 表头必须在滚动容器内：① 与行共享同一宽度（否则出现竖向滚动条时行被挤窄、
+         表头仍是整宽，右侧作者/日期列整体偏移一个滚动条宽度，分割线对不上）；
+         ② position:sticky 的就近滚动祖先才是 .graph-scroll，表头才会真正吸顶。 -->
     <div class="graph-scroll" id="graph-scroll">
+      <div class="log-column-header">
+        <div class="log-column-header-info">
+          <div class="log-column-resize-handle first" data-column-resize="graph" role="separator" aria-label="调整图沟槽宽（lane 间距）" tabindex="0" title="拖拽或方向键（±10px）调整图沟槽宽；双击复位为自适应压缩"></div>
+          <div class="log-column-header-hash">提交</div>
+          <div class="log-column-resize-handle" data-column-resize="hash" role="separator" aria-label="调整提交号列宽" tabindex="0" title="拖拽或方向键（±10px）调整提交号列宽；双击复位"></div>
+          <div class="log-column-header-title">消息</div>
+          <div class="log-column-resize-handle" data-column-resize="author" role="separator" aria-label="调整作者列宽" tabindex="0" title="拖拽或方向键（±10px）调整作者列宽（消息列随之伸缩）；双击复位"></div>
+          <div class="log-column-header-author">作者</div>
+          <div class="log-column-resize-handle" data-column-resize="date" role="separator" aria-label="调整日期列宽" tabindex="0" title="拖拽或方向键（±10px）调整日期列宽；双击复位"></div>
+          <div class="log-column-header-date">日期</div>
+        </div>
+      </div>
       <div class="gp-canvas" id="gp-canvas">
         <div class="gp-graph" id="gp-graph"></div>
         <div class="gp-rows" id="gp-rows"></div>
@@ -350,7 +353,11 @@ export class GraphPanel {
 
   private scrollToMatch(row: number): void {
     const scroller = this.must('graph-scroll');
-    const top = row * ROW_H - scroller.clientHeight / 2 + ROW_H / 2;
+    // 表头在滚动容器内（与行同宽 + 真正吸顶），滚动内容顶部因此多出表头高度，
+    // 行 i 距滚动内容顶部的偏移 = 表头高 + i*ROW_H，否则定位会整体偏低。
+    const header = scroller.querySelector<HTMLElement>('.log-column-header');
+    const headerH = header ? header.offsetHeight : 0;
+    const top = headerH + row * ROW_H - scroller.clientHeight / 2 + ROW_H / 2;
     scroller.scrollTop = Math.max(0, top);
   }
 
