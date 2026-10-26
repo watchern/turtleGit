@@ -508,9 +508,16 @@ export class BranchesSidebar {
     name: string,
     isRemote: boolean,
   ): Promise<void> {
+    // 「与当前分支对比」：当前分支就是所选分支时无意义，不展示
+    const cur = this.currentRef();
+    const cmp =
+      cur && cur !== name
+        ? [{ label: `与当前分支对比（${cur} ↔ ${name}）`, action: () => this.compareWithCurrent(name) }]
+        : [];
     const items: Array<{ label: string; danger?: boolean; action: () => void }> = isRemote
       ? [
           { label: '检出为本地分支…', action: () => void this.checkoutRemote(name) },
+          ...cmp,
           { label: '合并到当前分支', action: () => void this.merge(name) },
           { label: '将当前分支变基到此', action: () => void this.rebase(name) },
           { label: '基于此新建分支…', action: () => void this.createBranch(name) },
@@ -518,6 +525,7 @@ export class BranchesSidebar {
         ]
       : [
           { label: '检出 (Checkout)', action: () => void this.checkout(name) },
+          ...cmp,
           { label: '基于此新建分支…', action: () => void this.createBranch(name) },
           { label: '合并到当前分支', action: () => void this.merge(name) },
           { label: '将当前分支变基到此', action: () => void this.rebase(name) },
@@ -525,6 +533,24 @@ export class BranchesSidebar {
           { label: '删除…', danger: true, action: () => void this.remove(name) },
         ];
     showMenuAt(this.menuEl, x, y, items, (i) => items[i]?.action());
+  }
+
+  /** 当前分支引用（分离 HEAD 时用 HEAD，保证 range 一定可解析） */
+  private currentRef(): string | undefined {
+    if (!this.info) return undefined;
+    return this.info.detached ? 'HEAD' : this.info.name;
+  }
+
+  /** 在主窗口打开「分支对比」面板：左=当前分支（基线），右=所选分支（目标） */
+  private compareWithCurrent(name: string): void {
+    const base = this.currentRef();
+    if (!base) {
+      toast('尚未读取到当前分支', true);
+      return;
+    }
+    void this.client
+      .send('ui:openCompare', { repoRoot: this.repoRoot, base, target: name })
+      .catch((err) => toast(`打开对比失败：${String(err)}`, true));
   }
 
   private async merge(ref: string): Promise<void> {

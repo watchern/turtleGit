@@ -10,6 +10,7 @@ import { DiffPanel } from './diff/DiffPanel';
 import { GraphPanel } from './graph/GraphPanel';
 import { StashPanel } from './stash/StashPanel';
 import { BlamePanel } from './blame/BlamePanel';
+import { ComparePanel } from './compare/ComparePanel';
 import { WebviewInit } from '../shared/protocol';
 
 declare function acquireVsCodeApi<T = unknown>(): {
@@ -60,6 +61,9 @@ function mount(init: WebviewInit): void {
       break;
     case 'blame':
       new BlamePanel(app, client, init.repoRoot, init.paths?.[0] ?? '');
+      break;
+    case 'compare':
+      new ComparePanel(app, client, init.repoRoot, init.compare);
       break;
   }
   currentDisposer = () => undefined;

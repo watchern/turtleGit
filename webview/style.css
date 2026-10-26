@@ -969,6 +969,36 @@ body.vscode-high-contrast-light {
   background: var(--focus);
 }
 
+/* ---------- 分支对比（左文件树 | 右差异） ---------- */
+.cmp-refs {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  font-family: var(--vscode-editor-font-family, monospace);
+}
+
+.cmp-ref {
+  padding: 1px 6px;
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  background: rgba(128, 128, 128, 0.15);
+  max-width: 240px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.cmp-arrow {
+  color: var(--muted);
+}
+
+/* 左栏宽度由 split-handle 拖拽控制（不叠加原生 resize 角标） */
+.cmp-split .pane.left {
+  min-width: 160px;
+  resize: none;
+}
+
 /* ---------- 左栏顶部筛选行（Intellig log-filter-row） ---------- */
 .log-filter-row {
   display: flex;
@@ -1644,6 +1674,33 @@ button.icon:hover {
 .sc-head .flex,
 .sc-actions .flex {
   flex: 1;
+}
+
+/* 底部提交按钮改为整行：主按钮占满剩余宽度，右侧接一个下拉切换提交方式
+   （普通提交 / 修订提交 / 提交后推送），两块视觉上拼成一条整行按钮 */
+.sc-commit-row {
+  display: flex;
+  align-items: stretch;
+  padding: 4px;
+}
+
+.sc-commit-row .sc-commit-main {
+  flex: 1;
+  min-width: 0;
+  border-top-right-radius: 0;
+  border-bottom-right-radius: 0;
+}
+
+.sc-commit-row .sc-commit-mode {
+  flex: none;
+  width: 24px;
+  padding: 0;
+  font-size: 10px;
+  line-height: 1;
+  border-top-left-radius: 0;
+  border-bottom-left-radius: 0;
+  border-left: 1px solid color-mix(in srgb, var(--fg) 25%, transparent);
+  border-left: 1px solid rgba(128, 128, 128, 0.25);
 }
 
 .sc-list {

@@ -9,8 +9,16 @@ import { parseStatus, parseLog, parseCommitFiles, parseSignOffIdentity } from '.
 import { absPathIn, relPathIn, normalizeFsPath } from '../src/host/core/paths';
 import { blobUriParams, blobUriQuery, parseBlobParams } from '../src/host/core/blobUri';
 import { computeLanes, buildEdges, laneColor, badgeWidth } from '../webview/graph/lanes';
+import { buildFileTree, collectDirs, collectFiles } from '../webview/ui/fileTree';
 import { parseBranchName, parseRemotes } from '../src/host/git/BranchOps';
 import { CommitInfo, FileStatus } from '../shared/protocol';
+
+/**
+ * 测试里直接 spawnSync 调 git 的超时（毫秒）。
+ * 本机在负载极高时 git 子进程会「输出完整但不退出」而无限挂起（spawnSync
+ * 默认无超时 → 整轮冒烟永远卡住）；给个宽松上限，超时即报错而不是死等。
+ */
+const SPAWN_TIMEOUT = 120_000;
 
 let failures = 0;
 function check(name: string, cond: boolean, extra?: unknown): void {
@@ -41,7 +49,7 @@ async function main(): Promise<void> {
     }
   };
   const run = (args: string[]) => {
-    const r = cp.spawnSync('git', args, { cwd: dir, encoding: 'utf8' });
+    const r = cp.spawnSync('git', args, { cwd: dir, encoding: 'utf8', timeout: SPAWN_TIMEOUT });
     if (r.status !== 0) throw new Error(`git ${args.join(' ')} failed: ${r.stderr}`);
     return r.stdout;
   };
@@ -121,7 +129,7 @@ async function main(): Promise<void> {
   {
     const d3 = fs.mkdtempSync(path.join(os.tmpdir(), 'turtlegit-empty-'));
     const r3 = (args: string[]) => {
-      const r = cp.spawnSync('git', args, { cwd: d3, encoding: 'utf8' });
+      const r = cp.spawnSync('git', args, { cwd: d3, encoding: 'utf8', timeout: SPAWN_TIMEOUT });
       if (r.status !== 0) throw new Error(`git ${args.join(' ')} failed: ${r.stderr}`);
       return r.stdout.trim();
     };
@@ -178,7 +186,7 @@ async function main(): Promise<void> {
   );
 
   const bodyOf = (): string =>
-    cp.spawnSync('git', ['log', '-1', '--format=%B'], { cwd: dir, encoding: 'utf8' }).stdout;
+    cp.spawnSync('git', ['log', '-1', '--format=%B'], { cwd: dir, encoding: 'utf8', timeout: SPAWN_TIMEOUT }).stdout;
 
   // --- 填写签署人 → 覆盖本次提交身份 ---
   fs.writeFileSync(path.join(dir, 'signoff1.txt'), 'x\n', 'utf8');
@@ -220,7 +228,12 @@ async function main(): Promise<void> {
     GIT_CONFIG_NOSYSTEM: '1',
   };
   const runBare = (args: string[]) => {
-    const r = cp.spawnSync('git', args, { cwd: noId, encoding: 'utf8', env: bareEnv });
+    const r = cp.spawnSync('git', args, {
+      cwd: noId,
+      encoding: 'utf8',
+      env: bareEnv,
+      timeout: SPAWN_TIMEOUT,
+    });
     return r;
   };
   runBare(['init', '-b', 'main']);
@@ -241,6 +254,7 @@ async function main(): Promise<void> {
     cwd: noId,
     encoding: 'utf8',
     env: bareEnv,
+    timeout: SPAWN_TIMEOUT,
   }).stdout;
   check(
     '无身份仓库的 Signed-off-by 正确',
@@ -252,6 +266,7 @@ async function main(): Promise<void> {
     cwd: noId,
     encoding: 'utf8',
     env: bareEnv,
+    timeout: SPAWN_TIMEOUT,
   }).stdout.trim();
   check('无身份仓库的作者为签署人', noIdAuthor === '王五 <wangwu@example.com>', noIdAuthor);
   rmTmp(noId);
@@ -338,7 +353,7 @@ async function main(): Promise<void> {
     const cp2 = await import('child_process');
     const d2 = fs2.mkdtempSync(path2.join(os2.tmpdir(), 'turtlegit-ops-'));
     const r2 = (args: string[]) => {
-      const r = cp2.spawnSync('git', args, { cwd: d2, encoding: 'utf8' });
+      const r = cp2.spawnSync('git', args, { cwd: d2, encoding: 'utf8', timeout: SPAWN_TIMEOUT });
       if (r.status !== 0) throw new Error(`git ${args.join(' ')} failed: ${r.stderr}`);
       return r.stdout.trim();
     };
@@ -422,7 +437,7 @@ async function main(): Promise<void> {
     const bare = fs3.mkdtempSync(path3.join(os3.tmpdir(), 'turtlegit-bare-'));
     const work = fs3.mkdtempSync(path3.join(os3.tmpdir(), 'turtlegit-work-'));
     const rb = (args: string[], cwd = bare) => {
-      const r = cp3.spawnSync('git', args, { cwd, encoding: 'utf8' });
+      const r = cp3.spawnSync('git', args, { cwd, encoding: 'utf8', timeout: SPAWN_TIMEOUT });
       if (r.status !== 0) throw new Error(`git ${args.join(' ')} failed: ${r.stderr}`);
       return r.stdout.trim();
     };
@@ -489,7 +504,7 @@ async function main(): Promise<void> {
     const cp4 = await import('child_process');
     const d4 = fs4.mkdtempSync(path4.join(os4.tmpdir(), 'turtlegit-stashfiles-'));
     const r4 = (args: string[]) => {
-      const r = cp4.spawnSync('git', args, { cwd: d4, encoding: 'utf8' });
+      const r = cp4.spawnSync('git', args, { cwd: d4, encoding: 'utf8', timeout: SPAWN_TIMEOUT });
       if (r.status !== 0) throw new Error(`git ${args.join(' ')} failed: ${r.stderr}`);
       return r.stdout.trim();
     };
@@ -783,7 +798,7 @@ async function main(): Promise<void> {
   {
     const igDir = fs.mkdtempSync(path.join(os.tmpdir(), 'turtlegit-ignore-'));
     const igRun = (args: string[]) => {
-      const r = cp.spawnSync('git', args, { cwd: igDir, encoding: 'utf8' });
+      const r = cp.spawnSync('git', args, { cwd: igDir, encoding: 'utf8', timeout: SPAWN_TIMEOUT });
       if (r.status !== 0) throw new Error(`git ${args.join(' ')} failed: ${r.stderr}`);
       return r.stdout;
     };
@@ -949,7 +964,7 @@ async function main(): Promise<void> {
     // fileLineCounts（末尾 gap 的数据来源）：独立仓库验证两侧总行数
     const dir3 = fs.mkdtempSync(path.join(os.tmpdir(), 'turtlegit-lc-'));
     const run3 = (args: string[]) => {
-      const r = cp.spawnSync('git', args, { cwd: dir3, encoding: 'utf8' });
+      const r = cp.spawnSync('git', args, { cwd: dir3, encoding: 'utf8', timeout: SPAWN_TIMEOUT });
       if (r.status !== 0) throw new Error(`git ${args.join(' ')} failed: ${r.stderr}`);
       return r.stdout;
     };
@@ -971,7 +986,7 @@ async function main(): Promise<void> {
     // 独立临时仓库：构造 HEAD / index / 工作区三态内容
     const dir2 = fs.mkdtempSync(path.join(os.tmpdir(), 'turtlegit-blob-'));
     const run2 = (args: string[]) => {
-      const r = cp.spawnSync('git', args, { cwd: dir2, encoding: 'utf8' });
+      const r = cp.spawnSync('git', args, { cwd: dir2, encoding: 'utf8', timeout: SPAWN_TIMEOUT });
       if (r.status !== 0) throw new Error(`git ${args.join(' ')} failed: ${r.stderr}`);
       return r.stdout;
     };
@@ -1063,7 +1078,7 @@ async function main(): Promise<void> {
     const work = path.join(dir3, 'work');
     fs.mkdirSync(work);
     const run3 = (args: string[], cwd = work): string => {
-      const r = cp.spawnSync('git', args, { cwd, encoding: 'utf8' });
+      const r = cp.spawnSync('git', args, { cwd, encoding: 'utf8', timeout: SPAWN_TIMEOUT });
       if (r.status !== 0) throw new Error(`git ${args.join(' ')} failed: ${r.stderr}`);
       return r.stdout;
     };
@@ -1140,7 +1155,7 @@ async function main(): Promise<void> {
     const dir4 = fs.mkdtempSync(path.join(os.tmpdir(), 'turtlegit-fetch-'));
     const work2 = path.join(dir4, 'work2');
     const run4 = (args: string[], cwd = work2): string => {
-      const r = cp.spawnSync('git', args, { cwd, encoding: 'utf8' });
+      const r = cp.spawnSync('git', args, { cwd, encoding: 'utf8', timeout: SPAWN_TIMEOUT });
       if (r.status !== 0) throw new Error(`git ${args.join(' ')} failed: ${r.stderr}`);
       return r.stdout;
     };
@@ -1188,7 +1203,7 @@ async function main(): Promise<void> {
     const work = path.join(dir5, 'work');
     fs.mkdirSync(work);
     const run5 = (args: string[], cwd = work): string => {
-      const r = cp.spawnSync('git', args, { cwd, encoding: 'utf8' });
+      const r = cp.spawnSync('git', args, { cwd, encoding: 'utf8', timeout: SPAWN_TIMEOUT });
       if (r.status !== 0) throw new Error(`git ${args.join(' ')} failed: ${r.stderr}`);
       return r.stdout;
     };
@@ -1227,6 +1242,20 @@ async function main(): Promise<void> {
     const same = await git.rangeFiles(work, 'main..main');
     check('相同引用区间无变更文件', same.length === 0, same);
 
+    // 对比面板按文件取 patch：range 形式必须能拿到 hunk（左=base，右=target）
+    const patchRange = await git.diffPatch(work, 'mod.txt', false, undefined, 'main..feature');
+    check(
+      '按 range 取单文件 patch（分支对比右侧内容）',
+      patchRange.includes('+++ b/mod.txt') && patchRange.includes('+v2') && patchRange.includes('+v3'),
+      patchRange,
+    );
+    const patchRev = await git.diffPatch(work, 'mod.txt', false, undefined, 'feature..main');
+    check(
+      '交换方向后 patch 反向（删除行变新增）',
+      patchRev.includes('-v2') && patchRev.includes('-v3'),
+      patchRev,
+    );
+
     // 非法区间抛错（GitRunner.out 非零退出）
     let rangeErr: unknown;
     try {
@@ -1245,7 +1274,12 @@ async function main(): Promise<void> {
     const work = path.join(dir6, 'work');
     fs.mkdirSync(work);
     const run6 = (args: string[], env?: Record<string, string>): void => {
-      const r = cp.spawnSync('git', args, { cwd: work, encoding: 'utf8', env: { ...process.env, ...env } });
+      const r = cp.spawnSync('git', args, {
+        cwd: work,
+        encoding: 'utf8',
+        env: { ...process.env, ...env },
+        timeout: SPAWN_TIMEOUT,
+      });
       if (r.status !== 0) throw new Error(`git ${args.join(' ')} failed: ${r.stderr}`);
     };
     run6(['init', '-q', '-b', 'main']);
@@ -1411,6 +1445,75 @@ async function main(): Promise<void> {
       /\.gp-rows \.commit-row \{/.test(css) &&
         !/(^|\n)\.commit-row \{[^}]*padding-left:\s*var\(--graph-w/.test(css),
     );
+  }
+
+  console.log('== 0.4.0 提交模式 / 分支对比 ==');
+  {
+    const read = (rel: string): string =>
+      fs.readFileSync(path.join(__dirname, '..', ...rel.split('/')), 'utf8');
+    const proto = read('shared/protocol.ts');
+    const pm = read('src/host/ui/PanelManager.ts');
+    const cmp = read('webview/compare/ComparePanel.ts');
+    const mainTs = read('webview/main.ts');
+    const br = read('webview/branches/BranchesSidebar.ts');
+    const cs = read('webview/commit/CommitSidebar.ts');
+    const css = fs.readFileSync(path.join(__dirname, '..', 'webview', 'style.css'), 'utf8');
+
+    // ---- 协议 ----
+    check("WebviewView 含 'compare'", /\| 'compare'/.test(proto));
+    check(
+      'ui:openCompare 请求含 repoRoot/base/target',
+      /'ui:openCompare':\s*\{\s*req:\s*\{\s*repoRoot:\s*string;\s*base:\s*string;\s*target:\s*string\s*\}/.test(proto),
+    );
+    check('WebviewInit 带 compare 参数', /compare\?:\s*\{\s*base:\s*string;\s*target:\s*string\s*\}/.test(proto));
+
+    // ---- 宿主 ----
+    check(
+      'openCompare 在主窗口（embedded）打开 compare 面板',
+      /openCompare\(repoRoot: string, base: string, target: string\): void \{\s*this\.openPanel\('compare', repoRoot, \{ compare: \{ base, target \} \}, 'embedded'\)/.test(pm),
+    );
+    check(
+      'ui:openCompare 已注册 RPC',
+      /router\.register\('ui:openCompare'[\s\S]{0,160}openCompare\(repoRoot, base, target\)/.test(pm),
+    );
+    check('compare 视图有中文标题', /compare:\s*'分支对比/.test(pm));
+
+    // ---- 对比面板 ----
+    check('对比面板用 diff:files 取变更文件', /send\('diff:files'[\s\S]{0,120}range: this\.range/.test(cmp));
+    check('对比 range 为 base..target', /`\$\{this\.base\}\.\.\$\{this\.target\}`/.test(cmp));
+    check('单文件差异用同一个 range', /loadPatchAndCounts\(this\.client, \{[\s\S]{0,160}range: this\.range/.test(cmp));
+    check('左栏是目录树（buildFileTree）', /buildFileTree\(this\.files\)/.test(cmp));
+    check('有可拖拽分栏把手', /class="split-handle" id="cmp-handle"/.test(cmp) && /bindSplitter\(\)/.test(cmp));
+    check('分栏宽度持久化', /saveState\(\{[\s\S]{0,80}paneW: this\.paneW/.test(cmp));
+    check('支持并排/统一切换', /this\.mode === 'side' \? 'unified' : 'side'/.test(cmp));
+    check('可交换对比方向', /id="cmp-swap"/.test(cmp));
+    check('可在原生编辑器打开（openRangeDiff）', /command\('openRangeDiff'[\s\S]{0,120}left: this\.base,\s*right: this\.target/.test(cmp));
+    check("main.ts 分发 'compare'", /case 'compare':[\s\S]{0,80}new ComparePanel\(/.test(mainTs));
+    check('主窗口打开时带 init.compare', /new ComparePanel\(app, client, init\.repoRoot, init\.compare\)/.test(mainTs));
+
+    // ---- 分支页右键 ----
+    check('分支右键菜单含「与当前分支对比」', /与当前分支对比/.test(br));
+    check('对比时 base=当前分支、target=所选分支', /send\('ui:openCompare', \{ repoRoot: this\.repoRoot, base, target: name \}/.test(br));
+    check('分离 HEAD 时用 HEAD 作基线', /this\.info\.detached \? 'HEAD' : this\.info\.name/.test(br));
+    check('当前分支不与自己对比', /cur && cur !== name/.test(br));
+
+    // ---- 提交按钮整行 + 模式下拉 ----
+    check('提交按钮改为整行（主按钮 + 模式下拉）', /class="sc-commit-row"/.test(cs) && /id="sc-commit-mode"/.test(cs));
+    check('三种提交模式 normal/amend/push', /CommitMode = 'normal' \| 'amend' \| 'push'/.test(cs));
+    check('修订由模式决定', /amend: this\.commitMode === 'amend'/.test(cs));
+    check('提交后推送由模式决定', /pushAfter: this\.commitMode === 'push'/.test(cs));
+    check('提交成功后复位为普通提交', /this\.commitMode = 'normal'/.test(cs));
+    check('已移除旧的「修订/推送」复选框', !/id="chk-amend"/.test(cs) && !/id="chk-push"/.test(cs));
+    check('CSS 提供整行提交按钮样式', /\.sc-commit-row \{/.test(css) && /\.sc-commit-main \{/.test(css) && /\.sc-commit-mode \{/.test(css));
+    check('对比面板左栏禁用原生 resize（用把手拖拽）', /\.cmp-split \.pane\.left \{[^}]*resize:\s*none/.test(css));
+
+    // ---- fileTree 泛型化（对比视图复用同一套建树逻辑） ----
+    const tree = buildFileTree([{ path: 'src/deep/b.ts' }, { path: 'src/a.ts' }, { path: 'README.md' }]);
+    check('建树不依赖 FileStatus 字段（仅需 path）', tree.length === 2 && tree[0].label === 'src');
+    const srcDir = tree.find((n) => n.label === 'src')!;
+    check('目录节点带子节点', srcDir.kind === 'dir' && (srcDir.children ?? []).length === 2);
+    check('递归收集文件', collectFiles(srcDir).length === 2);
+    check('递归收集目录路径', collectDirs(tree).join('|') === 'src|src/deep', collectDirs(tree));
   }
 
   if (failures > 0) {

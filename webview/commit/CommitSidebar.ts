@@ -2,6 +2,7 @@ import { RpcClient } from '../bridge';
 import { buildFileTree, collectDirs, collectFiles, FileTreeNode } from '../ui/fileTree';
 import { loadState, saveState } from '../state';
 import { statusBadge, esc, escAttr } from './common';
+import { showMenuAt } from '../ui/dialogs';
 import { BranchInfo, FileStatus, FileNumstat, StatusViewMode } from '../../shared/protocol';
 
 /** 右键菜单项：有 children 时点击展开子菜单（渲染为带 › 的父项） */
@@ -10,6 +11,15 @@ interface MenuItem {
   action?: () => void;
   children?: () => MenuItem[];
 }
+
+/** 提交方式（底部整行按钮的下拉选项）：普通提交 / 修订提交(Amend) / 提交后推送 */
+export type CommitMode = 'normal' | 'amend' | 'push';
+
+const COMMIT_MODE_LABEL: Record<CommitMode, string> = {
+  normal: '提交',
+  amend: '修订提交',
+  push: '提交并推送',
+};
 
 /** 侧边栏提交视图的持久化状态（webview 重载后恢复提交信息与勾选） */
 interface CommitSidebarState {
@@ -23,8 +33,8 @@ interface CommitSidebarState {
   signOff?: boolean;
   /** 签署人「姓名 <邮箱>」，留空表示用 git 身份 */
   signOffName?: string;
-  /** 提交后自动推送 */
-  pushAfter?: boolean;
+  /** 提交方式：普通提交 / 修订提交 / 提交后推送 */
+  commitMode?: CommitMode;
 }
 
 /**
@@ -57,9 +67,11 @@ export class CommitSidebarPanel {
   private listEl!: HTMLElement;
   private msgEl!: HTMLTextAreaElement;
   private btnCommit!: HTMLButtonElement;
-  private chkAmend!: HTMLInputElement;
+  /** 底部整行按钮右侧的下拉（切换提交方式） */
+  private btnCommitMode!: HTMLButtonElement;
+  /** 当前提交方式：普通提交 / 修订提交 / 提交后推送 */
+  private commitMode: CommitMode = 'normal';
   private chkSignOff!: HTMLInputElement;
-  private chkPush!: HTMLInputElement;
   private inpSignOff!: HTMLInputElement;
   private signOffRow!: HTMLElement;
   /** git 身份（user.name / user.email），签署人输入框的默认值 */
@@ -119,11 +131,12 @@ export class CommitSidebarPanel {
     <div class="sel-stat" id="sc-stat"></div>
     <textarea id="sc-message" class="message" rows="4" placeholder="提交信息…（Ctrl+Enter 提交）"></textarea>
     <div class="sc-actions">
-      <label class="chk"><input type="checkbox" id="sc-amend"> 修订</label>
       <label class="chk"><input type="checkbox" id="sc-signoff"> 签署</label>
-      <label class="chk"><input type="checkbox" id="sc-push"> 提交后推送</label>
       <span class="flex"></span>
-      <button class="primary" id="sc-commit">提交</button>
+    </div>
+    <div class="sc-commit-row">
+      <button class="primary sc-commit-main" id="sc-commit">提交</button>
+      <button class="primary sc-commit-mode" id="sc-commit-mode" title="切换提交方式：普通提交 / 修订提交 / 提交后推送" aria-haspopup="true" aria-expanded="false">▾</button>
     </div>
     <div class="sc-signoff" id="sc-signoff-row" hidden>
       <input type="text" id="sc-signoff-name" class="signoff-input"
@@ -137,11 +150,29 @@ export class CommitSidebarPanel {
     this.listEl = this.must('sc-list');
     this.msgEl = this.must('sc-message') as HTMLTextAreaElement;
     this.btnCommit = this.must('sc-commit') as HTMLButtonElement;
-    this.chkAmend = this.must('sc-amend') as HTMLInputElement;
+    this.btnCommitMode = this.must('sc-commit-mode') as HTMLButtonElement;
     this.chkSignOff = this.must('sc-signoff') as HTMLInputElement;
-    this.chkPush = this.must('sc-push') as HTMLInputElement;
     this.inpSignOff = this.must('sc-signoff-name') as HTMLInputElement;
     this.signOffRow = this.must('sc-signoff-row');
+    this.syncCommitMode();
+
+    // 整行按钮右侧的下拉：切换提交方式（普通 / 修订 / 提交后推送）
+    this.btnCommitMode.addEventListener('click', (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      const rect = this.btnCommitMode.getBoundingClientRect();
+      showMenuAt(
+        this.must('sc-menu'),
+        rect.left,
+        rect.bottom,
+        [{ label: '普通提交' }, { label: '修订提交（Amend）' }, { label: '提交后推送' }],
+        (i) => {
+          this.commitMode = (['normal', 'amend', 'push'] as CommitMode[])[i] ?? 'normal';
+          this.syncCommitMode();
+          this.persist();
+        },
+      );
+    });
 
     // 勾选「签署」时才显示签署人输入框
     this.chkSignOff.addEventListener('change', () => {
@@ -149,7 +180,6 @@ export class CommitSidebarPanel {
       if (this.chkSignOff.checked) this.inpSignOff.focus();
       this.persist();
     });
-    this.chkPush.addEventListener('change', () => this.persist());
     this.inpSignOff.addEventListener('input', () => this.persistSoon());
 
     this.must('sc-mode').addEventListener('click', () => {
@@ -234,7 +264,23 @@ export class CommitSidebarPanel {
     if (typeof s.signOff === 'boolean') this.chkSignOff.checked = s.signOff;
     this.signOffRow.hidden = !this.chkSignOff.checked;
     if (typeof s.signOffName === 'string') this.inpSignOff.value = s.signOffName;
-    if (typeof s.pushAfter === 'boolean') this.chkPush.checked = s.pushAfter;
+    if (s.commitMode === 'amend' || s.commitMode === 'push') {
+      this.commitMode = s.commitMode;
+      this.syncCommitMode();
+    }
+  }
+
+  /** 把当前提交方式同步到整行按钮（主按钮文案 + 下拉标题） */
+  private syncCommitMode(): void {
+    this.btnCommit.textContent = COMMIT_MODE_LABEL[this.commitMode];
+    const hint =
+      this.commitMode === 'normal'
+        ? '普通提交'
+        : this.commitMode === 'amend'
+          ? '修订提交（Amend）：并入上一个提交'
+          : '提交后推送：提交成功即 push 到上游';
+    this.btnCommit.title = hint;
+    this.btnCommitMode.title = `当前：${hint}\n点击下拉可切换为 普通提交 / 修订提交 / 提交后推送`;
   }
 
   private persist(): void {
@@ -247,7 +293,7 @@ export class CommitSidebarPanel {
       showIgnored: this.showIgnored,
       signOff: this.chkSignOff.checked,
       signOffName: this.inpSignOff.value,
-      pushAfter: this.chkPush.checked,
+      commitMode: this.commitMode,
     } satisfies CommitSidebarState);
   }
 
@@ -772,6 +818,7 @@ export class CommitSidebarPanel {
     }
     this.busy = true;
     this.btnCommit.disabled = true;
+    this.btnCommitMode.disabled = true;
     this.btnCommit.textContent = '提交中…';
     try {
       const files = this.selected.size ? [...this.selected] : undefined;
@@ -779,13 +826,14 @@ export class CommitSidebarPanel {
         repoRoot: this.repoRoot,
         message,
         files,
-        amend: this.chkAmend.checked,
+        amend: this.commitMode === 'amend',
         signOff: this.chkSignOff.checked,
         signOffName: this.inpSignOff.value.trim(),
-        pushAfter: this.chkPush.checked,
+        pushAfter: this.commitMode === 'push',
       });
       this.msgEl.value = '';
-      this.chkAmend.checked = false;
+      // 修订/推送都是一次性动作：提交成功后回到「普通提交」
+      this.commitMode = 'normal';
       this.selected.clear();
       this.userTouched.clear();
       this.clearPersistedState();
@@ -799,7 +847,8 @@ export class CommitSidebarPanel {
     } finally {
       this.busy = false;
       this.btnCommit.disabled = false;
-      this.btnCommit.textContent = '提交';
+      this.btnCommitMode.disabled = false;
+      this.syncCommitMode();
     }
   }
 

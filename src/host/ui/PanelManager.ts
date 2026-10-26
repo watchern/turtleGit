@@ -24,6 +24,7 @@ const VIEW_TITLES: Record<WebviewView, string> = {
   log: '显示日志 (Show Log) - TurtleGit',
   diff: '比较差异 (Diff) - TurtleGit',
   graph: '版本分支图 (Revision Graph) - TurtleGit',
+  compare: '分支对比 (Compare Branches) - TurtleGit',
   stash: '存储 (Stash) - TurtleGit',
   blame: '追溯 (Blame) - TurtleGit',
 };
@@ -147,6 +148,14 @@ export class PanelManager {
       return;
     }
     this.openPanel('graph', repoRoot, {}, 'embedded');
+  }
+
+  /**
+   * 分支对比：在主窗口打开「分支对比」面板，比较 base 与 target 两个引用。
+   * 侧边栏分支页右键「与当前分支对比」走这里（左文件树、右差异、可拖拽分栏）。
+   */
+  openCompare(repoRoot: string, base: string, target: string): void {
+    this.openPanel('compare', repoRoot, { compare: { base, target } }, 'embedded');
   }
 
   /** 打开 Stash 管理。 */
@@ -390,7 +399,13 @@ export class PanelManager {
   private async openPanel(
     view: WebviewView,
     repoRoot: string,
-    opts: { paths?: string[]; filterPath?: string; diff?: WebviewInit['diff']; stashRef?: string },
+    opts: {
+      paths?: string[];
+      filterPath?: string;
+      diff?: WebviewInit['diff'];
+      stashRef?: string;
+      compare?: WebviewInit['compare'];
+    },
     modeOverride?: PanelMode,
   ): Promise<vscode.WebviewPanel> {
     const mode = modeOverride ?? this.panelMode;
@@ -458,6 +473,7 @@ export class PanelManager {
       diff?: WebviewInit['diff'];
       stashRef?: string;
       tab?: WebviewInit['tab'];
+      compare?: WebviewInit['compare'];
     },
     mode: PanelMode = this.panelMode,
     sidebar = false,
@@ -468,6 +484,7 @@ export class PanelManager {
       paths: opts.paths,
       filterPath: opts.filterPath,
       diff: opts.diff,
+      compare: opts.compare,
       stashRef: opts.stashRef,
       statusViewMode: this.context.globalState.get<StatusViewMode>('turtlegit.viewMode') ?? 'list',
       panelMode: mode,
@@ -838,6 +855,9 @@ export class PanelManager {
     });
     this.router.register('ui:openStash', async ({ repoRoot, ref }) => {
       this.openStashForRepo(repoRoot, ref);
+    });
+    this.router.register('ui:openCompare', async ({ repoRoot, base, target }) => {
+      this.openCompare(repoRoot, base, target);
     });
   }
 

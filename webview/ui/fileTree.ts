@@ -1,15 +1,19 @@
 import { FileStatus } from '../../shared/protocol';
 
-export interface FileTreeNode {
+/**
+ * 目录树节点。泛型 T 为叶子携带的数据（提交视图是 FileStatus，
+ * 分支对比视图是 CommitFile），两个视图共用同一套建树/遍历逻辑。
+ */
+export interface FileTreeNode<T = FileStatus> {
   kind: 'dir' | 'file';
   /** 目录：完整相对目录路径（不含首尾 /）；文件：完整相对文件路径 */
   path: string;
   /** 显示名：目录名 / 文件名 */
   label: string;
   /** 目录的直接子节点（目录在前、各自按名称排序） */
-  children?: FileTreeNode[];
-  /** 文件节点对应的 FileStatus */
-  file?: FileStatus;
+  children?: FileTreeNode<T>[];
+  /** 文件节点对应的条目 */
+  file?: T;
 }
 
 /**
@@ -19,8 +23,8 @@ export interface FileTreeNode {
  * 路径以 / 结尾的条目（超上限保持折叠的忽略目录，如 `! node_modules/`）渲染为
  * 无子节点的目录节点，避免按文件解析出空名行。
  */
-export function buildFileTree(files: FileStatus[]): FileTreeNode[] {
-  const root: FileTreeNode = { kind: 'dir', path: '', label: '', children: [] };
+export function buildFileTree<T extends { path: string }>(files: T[]): FileTreeNode<T>[] {
+  const root: FileTreeNode<T> = { kind: 'dir', path: '', label: '', children: [] };
   for (const f of files) {
     const isDirEntry = f.path.endsWith('/');
     const parts = (isDirEntry ? f.path.slice(0, -1) : f.path).split('/');
@@ -45,7 +49,7 @@ export function buildFileTree(files: FileStatus[]): FileTreeNode[] {
       });
     }
   }
-  const sortRec = (nodes: FileTreeNode[]): void => {
+  const sortRec = (nodes: FileTreeNode<T>[]): void => {
     nodes.sort((a, b) =>
       a.kind === b.kind ? a.label.localeCompare(b.label) : a.kind === 'dir' ? -1 : 1,
     );
@@ -58,15 +62,15 @@ export function buildFileTree(files: FileStatus[]): FileTreeNode[] {
 }
 
 /** 递归收集目录下所有文件（含子目录）。 */
-export function collectFiles(node: FileTreeNode): FileStatus[] {
+export function collectFiles<T>(node: FileTreeNode<T>): T[] {
   if (node.kind === 'file') return node.file ? [node.file] : [];
-  const out: FileStatus[] = [];
+  const out: T[] = [];
   for (const c of node.children ?? []) out.push(...collectFiles(c));
   return out;
 }
 
 /** 递归收集所有目录节点路径（一键收起/展开用）。 */
-export function collectDirs(nodes: FileTreeNode[]): string[] {
+export function collectDirs<T>(nodes: FileTreeNode<T>[]): string[] {
   const out: string[] = [];
   for (const n of nodes) {
     if (n.kind === 'dir') {

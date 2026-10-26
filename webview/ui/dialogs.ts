@@ -141,6 +141,11 @@ export function showMenuAt(
   host.hidden = false;
   host.style.left = `${x}px`;
   host.style.top = `${y}px`;
+  // 夹紧到视口内：窄侧边栏里的下拉（如提交方式）贴着右/下边界弹出时会溢出被裁掉
+  const maxLeft = window.innerWidth - host.offsetWidth - 4;
+  const maxTop = window.innerHeight - host.offsetHeight - 4;
+  if (Number.isFinite(maxLeft)) host.style.left = `${Math.max(4, Math.min(x, maxLeft))}px`;
+  if (Number.isFinite(maxTop)) host.style.top = `${Math.max(4, Math.min(y, maxTop))}px`;
   host.querySelectorAll<HTMLElement>('.ctx-item').forEach((el) => {
     el.addEventListener('click', () => {
       host.hidden = true;

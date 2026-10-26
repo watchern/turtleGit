@@ -94,6 +94,7 @@ export type WebviewView =
   | 'graph'
   | 'stash'
   | 'blame'
+  | 'compare'
   | 'sidebar';
 
 /** 合并后的侧边栏标签页：提交 / 分支 / 暂存 */
@@ -108,6 +109,8 @@ export interface WebviewInit {
   filterPath?: string;
   /** diff 视图参数 */
   diff?: { path: string; staged: boolean; against?: string };
+  /** 分支对比视图参数：base = 当前分支/基准，target = 被对比分支 */
+  compare?: { base: string; target: string };
   /** 变更文件列表的视图模式（侧边栏与提交对话框共享同一偏好） */
   statusViewMode?: StatusViewMode;
   panelMode: PanelMode;
@@ -249,6 +252,8 @@ export interface RpcRequests {
   'ui:revealInExplorer': { req: { repoRoot: string; path: string }; res: void };
   /** 侧边栏「查看 stash」：在主窗口打开 Stash 管理面板并预选该 stash（多文件可分别查看改动） */
   'ui:openStash': { req: { repoRoot: string; ref?: string }; res: void };
+  /** 打开「分支对比」面板：在主窗口对比 base 与 target 两个引用 */
+  'ui:openCompare': { req: { repoRoot: string; base: string; target: string }; res: void };
 
   // ---- 分支操作（BranchOps） ----
   'branch:list': { req: { repoRoot: string }; res: BranchEntry[] };
