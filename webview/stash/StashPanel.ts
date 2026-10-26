@@ -250,7 +250,7 @@ ${listPane}
         staged: false,
         range,
       });
-      this.diffEl.innerHTML = renderDiff(patch, 'side', tail);
+      this.diffEl.innerHTML = renderDiff(patch, 'side', tail, this.currentFile.path);
       this.diffTitleEl.textContent = `${this.currentFile.path}（${this.selected.ref}）`;
       bindDiffInteractions(this.diffEl, this.client, {
         repoRoot: this.repoRoot,

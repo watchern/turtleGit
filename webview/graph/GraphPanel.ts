@@ -543,7 +543,8 @@ export class GraphPanel {
 
   /** 当前列宽（图沟槽 = 实际占用宽度，其余为列宽） */
   private colWidth(which: 'graph' | 'hash' | 'author' | 'date'): number {
-    if (which === 'graph') return this.laneCount() * this.currentLaneW() + 6;
+    // 与实际渲染宽度同源（含 GRAPH_W_MIN 下限），否则拖拽起点会偏
+    if (which === 'graph') return graphWidth(this.laneCount(), this.currentLaneW());
     if (which === 'hash') return this.hashW;
     return which === 'author' ? this.authorW : this.dateW;
   }
@@ -899,7 +900,7 @@ ${refs}
         staged: false,
         range,
       });
-      this.diffEl.innerHTML = renderDiff(patch, 'side', tail);
+      this.diffEl.innerHTML = renderDiff(patch, 'side', tail, this.currentFile.path);
       bindDiffInteractions(
         this.diffEl,
         this.client,

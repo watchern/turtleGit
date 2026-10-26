@@ -1288,6 +1288,82 @@ async function main(): Promise<void> {
     rmTmp(dir6);
   }
 
+  console.log('== diff 语法高亮（highlight.js 词法着色） ==');
+  {
+    const { languageForPath, highlightLine, HIGHLIGHT_MAX_LINES } = await import('../webview/diff/highlight');
+    const { renderDiff, diffLanguage } = await import('../webview/diff/DiffRenderer');
+
+    check('ts/tsx 识别为 typescript', languageForPath('src/a/b.ts') === 'typescript' && languageForPath('x.tsx') === 'typescript');
+    check('js/jsx 识别为 javascript', languageForPath('a.js') === 'javascript' && languageForPath('y.jsx') === 'javascript');
+    check('csproj/svg 走 xml', languageForPath('a/b.csproj') === 'xml' && languageForPath('i.svg') === 'xml');
+    check('Makefile 走 bash', languageForPath('Makefile') === 'bash');
+    check('toml/ini 走 ini', languageForPath('Cargo.toml') === 'ini' && languageForPath('a.ini') === 'ini');
+    check('未知扩展名不着色', languageForPath('a.unknownext') === undefined);
+    check('空路径不着色', languageForPath(undefined) === undefined);
+
+    const kw = highlightLine('const x = 1;', 'typescript');
+    check('关键字被着色', kw.includes('hljs-keyword') && kw.includes('const'), kw);
+    check('数字被着色', kw.includes('hljs-number'), kw);
+    const esc1 = highlightLine('a < b && c > d', 'typescript');
+    check('着色结果已转义（无裸 < >）', !esc1.includes('<b') && esc1.includes('&lt;') && esc1.includes('&gt;'), esc1);
+    check('未注册语言退化为纯转义', highlightLine('<b>', 'nosuchlang') === '&lt;b&gt;');
+    check('空行/缺失返回空串', highlightLine('', 'typescript') === '' && highlightLine(undefined, 'typescript') === '');
+
+    const patchTs = ['--- a/a.ts', '+++ b/a.ts', '@@ -1,1 +1,1 @@', '-const a = 1;', '+const a = 2;'].join('\n');
+    const htmlTs = renderDiff(patchTs, 'unified', undefined, 'a.ts');
+    check('传入路径后差异行带 token 着色', htmlTs.includes('hljs-keyword'), htmlTs);
+    const htmlNoPath = renderDiff(patchTs, 'unified');
+    check(
+      '不传路径时保持纯文本（向后兼容）',
+      !htmlNoPath.includes('hljs-') && htmlNoPath.includes('const a = 1;'),
+      htmlNoPath,
+    );
+    const htmlSide = renderDiff(patchTs, 'side', undefined, 'a.ts');
+    check('并排模式左右两侧都着色', (htmlSide.match(/hljs-keyword/g) ?? []).length >= 2, htmlSide);
+    check('普通大小 patch 保留着色', diffLanguage('a.ts', patchTs) === 'typescript');
+    check(
+      `超过 ${HIGHLIGHT_MAX_LINES} 行的 patch 关闭着色`,
+      diffLanguage('a.ts', 'x\n'.repeat(HIGHLIGHT_MAX_LINES + 10)) === undefined,
+    );
+  }
+
+  console.log('== 图面板列宽 CSS 回归护栏 ==');
+  {
+    const css = fs.readFileSync(path.join(__dirname, '..', 'webview', 'style.css'), 'utf8');
+    const ruleBody = (sel: string): string => {
+      const idx = css.indexOf(`\n${sel} {`);
+      if (idx === -1) return '';
+      const start = css.indexOf('{', idx);
+      const end = css.indexOf('}', start);
+      return css.slice(start + 1, end);
+    };
+    // 行内提交号列必须跟随 --col-hash-width，否则「提交 ↔ 消息」手柄拖了表头动、行不动
+    check('行内提交号列宽度跟随 --col-hash-width', /width:\s*var\(--col-hash-width/.test(ruleBody('.commit-hash')));
+    check('表头提交号列用同一个变量', /width:\s*var\(--col-hash-width/.test(ruleBody('.log-column-header-hash')));
+    check('表头提交号列无额外左内边距（与行内一致）', !/padding-left/.test(ruleBody('.log-column-header-hash')));
+    check(
+      '表头左内边距 = 图沟槽 + 行内 commit-info 的 8px',
+      /padding-left:\s*calc\(var\(--graph-w[^)]*\)\s*\+\s*8px\)/.test(ruleBody('.log-column-header-info')),
+      ruleBody('.log-column-header-info'),
+    );
+    check(
+      '表头与行内作者列内边距一致（12px）',
+      /padding-left:\s*12px/.test(ruleBody('.log-column-header-author')) && /padding-left:\s*12px/.test(ruleBody('.commit-author')),
+    );
+    check(
+      '表头与行内日期列内边距一致（12px）',
+      /padding-left:\s*12px/.test(ruleBody('.log-column-header-date')) && /padding-left:\s*12px/.test(ruleBody('.commit-date')),
+    );
+    // 手柄必须净宽 0，否则表头会被手柄宽度累积推着右移，分割线与行内列错位
+    const handle = ruleBody('.log-column-resize-handle');
+    check(
+      '列宽手柄净宽为 0（左右各 -3.5px）',
+      /margin-left:\s*-3\.5px/.test(handle) && /margin-right:\s*-3\.5px/.test(handle),
+      handle,
+    );
+    check('color-mix 用法都有 rgba 兜底或经 @supports 保护', /@supports \(background: color-mix/.test(css));
+  }
+
   if (failures > 0) {
     console.error(`\n${failures} 个断言失败`);
     process.exit(1);

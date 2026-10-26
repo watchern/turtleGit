@@ -30,7 +30,8 @@ export class GitService {
   async repoRootOf(fsPath: string): Promise<string | null> {
     const r = await this.runner.tryRun(['rev-parse', '--show-toplevel'], {
       cwd: fsPath,
-      timeoutMs: 8000,
+      // 同 rev-parse HEAD：慢环境偶发超 8s，放宽到 15s（失败仅意味着非 git 仓库，不影响其他）
+      timeoutMs: 15000,
     });
     if (!r) {
       return null;
@@ -406,7 +407,9 @@ export class GitService {
     }
     const head = await this.runner.out(['rev-parse', 'HEAD'], {
       cwd: repoRoot,
-      timeoutMs: 10000,
+      // rev-parse 本身是瞬时命令，但慢磁盘/网络盘/重负载机器上 git 进程
+      // 启动与退出偶尔会超过 10s，放宽到 30s 避免误杀（已实测出 hash 后被 SIGKILL）。
+      timeoutMs: 30000,
     });
     return { hash: head.trim() };
   }

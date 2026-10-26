@@ -25,8 +25,17 @@
   --conflict: var(--vscode-gitDecoration-conflictingResourceForeground, #e4676b);
   --untracked: var(--vscode-gitDecoration-untrackedResourceForeground, #73c991);
   --focus: var(--vscode-focusBorder, #007fd4);
-  --diff-add-bg: color-mix(in srgb, var(--add) 15%, transparent);
-  --diff-del-bg: color-mix(in srgb, var(--del) 15%, transparent);
+  /* color-mix 需要 Chrome 111+（VSCode 1.78+）；老版本用下面这份纯色兜底，
+     @supports 通过时再覆盖为基于主题色的混色 */
+  --diff-add-bg: rgba(129, 184, 139, 0.15);
+  --diff-del-bg: rgba(199, 78, 57, 0.15);
+}
+
+@supports (background: color-mix(in srgb, red 50%, blue)) {
+  :root {
+    --diff-add-bg: color-mix(in srgb, var(--add) 15%, transparent);
+    --diff-del-bg: color-mix(in srgb, var(--del) 15%, transparent);
+  }
 }
 
 * {
@@ -208,6 +217,7 @@ button.mini {
   font-size: 12px;
   font-weight: 500;
   background: color-mix(in srgb, var(--border) 25%, transparent);
+  background: rgba(128, 128, 128, 0.25);
   border-bottom: 1px solid var(--border);
 }
 
@@ -554,6 +564,7 @@ button.mini {
 
 /* 行高亮联动：hover 或点击行号时整行（左右同 tr）微亮，不覆盖增删行底色 */
 .diff-table tbody tr:hover td {
+  background-image: linear-gradient(rgba(0, 127, 212, 0.12), rgba(0, 127, 212, 0.12));
   background-image: linear-gradient(
     color-mix(in srgb, var(--focus) 12%, transparent),
     color-mix(in srgb, var(--focus) 12%, transparent)
@@ -561,6 +572,7 @@ button.mini {
 }
 
 .diff-table tbody tr.hl td {
+  background-image: linear-gradient(rgba(0, 127, 212, 0.22), rgba(0, 127, 212, 0.22));
   background-image: linear-gradient(
     color-mix(in srgb, var(--focus) 22%, transparent),
     color-mix(in srgb, var(--focus) 22%, transparent)
@@ -576,8 +588,11 @@ button.mini {
 .d-gap td {
   padding: 0;
   border-top: 1px solid color-mix(in srgb, var(--border) 60%, transparent);
+  border-top: 1px solid rgba(128, 128, 128, 0.6);
   border-bottom: 1px solid color-mix(in srgb, var(--border) 60%, transparent);
+  border-bottom: 1px solid rgba(128, 128, 128, 0.6);
   background-color: color-mix(in srgb, var(--border) 12%, transparent);
+  background-color: rgba(128, 128, 128, 0.12);
 }
 
 .d-gap-inner {
@@ -620,6 +635,7 @@ button.mini {
 
 .d-hunk td {
   background: color-mix(in srgb, var(--focus) 18%, transparent);
+  background: rgba(0, 127, 212, 0.18);
   color: var(--fg);
   padding: 2px 6px;
   font-size: 11px;
@@ -649,10 +665,133 @@ tr.d-del .d-text::before {
   color: var(--del);
 }
 
+/* ---------- 语法高亮 ----------
+   highlight.js 的 token class 映射到主题配色：深色用 Dark+ 经典值，
+   浅色用 Light+ 经典值（body.vscode-light 由 VSCode 在 webview 上自动加）。
+   只影响文本颜色，不参与行号/折叠/选区交互。 */
+:root {
+  --hl-keyword: #569cd6;
+  --hl-control: #c586c0;
+  --hl-string: #ce9178;
+  --hl-number: #b5cea8;
+  --hl-comment: #6a9955;
+  --hl-type: #4ec9b0;
+  --hl-func: #dcdcaa;
+  --hl-var: #9cdcfe;
+  --hl-attr: #9cdcfe;
+  --hl-tag: #569cd6;
+  --hl-meta: #9b9b9b;
+  --hl-regexp: #d16969;
+}
+
+body.vscode-light,
+body.vscode-high-contrast-light {
+  --hl-keyword: #0000ff;
+  --hl-control: #af00db;
+  --hl-string: #a31515;
+  --hl-number: #098658;
+  --hl-comment: #008000;
+  --hl-type: #267f99;
+  --hl-func: #795e26;
+  --hl-var: #001080;
+  --hl-attr: #e50000;
+  --hl-tag: #800000;
+  --hl-meta: #000000;
+  --hl-regexp: #811f3f;
+}
+
+.hljs-keyword,
+.hljs-selector-tag,
+.hljs-literal,
+.hljs-doctag,
+.hljs-name {
+  color: var(--hl-keyword);
+}
+
+.hljs-built_in,
+.hljs-builtin-name {
+  color: var(--hl-control);
+}
+
+.hljs-string,
+.hljs-char,
+.hljs-quote {
+  color: var(--hl-string);
+}
+
+.hljs-number,
+.hljs-symbol,
+.hljs-bullet {
+  color: var(--hl-number);
+}
+
+.hljs-comment {
+  color: var(--hl-comment);
+  font-style: italic;
+}
+
+.hljs-type,
+.hljs-selector-class,
+.hljs-selector-id,
+.hljs-class .hljs-title,
+.hljs-title.class_ {
+  color: var(--hl-type);
+}
+
+.hljs-title,
+.hljs-section,
+.hljs-function .hljs-title,
+.hljs-title.function_ {
+  color: var(--hl-func);
+}
+
+.hljs-variable,
+.hljs-template-variable,
+.hljs-params,
+.hljs-property {
+  color: var(--hl-var);
+}
+
+.hljs-attr,
+.hljs-attribute {
+  color: var(--hl-attr);
+}
+
+.hljs-tag,
+.hljs-selector-pseudo {
+  color: var(--hl-tag);
+}
+
+.hljs-meta,
+.hljs-meta .hljs-keyword {
+  color: var(--hl-meta);
+}
+
+.hljs-regexp {
+  color: var(--hl-regexp);
+}
+
+.hljs-emphasis {
+  font-style: italic;
+}
+
+.hljs-strong {
+  font-weight: 600;
+}
+
+.hljs-addition {
+  color: var(--add);
+}
+
+.hljs-deletion {
+  color: var(--del);
+}
+
 /* ---------- 提交列表 ---------- */
 .commit-row {
   padding: 6px 10px;
   border-bottom: 1px solid color-mix(in srgb, var(--border) 40%, transparent);
+  border-bottom: 1px solid rgba(128, 128, 128, 0.4);
   cursor: default;
   user-select: none;
 }
@@ -719,6 +858,7 @@ tr.d-del .d-text::before {
   padding: 1px 5px;
   border-radius: 8px;
   background: color-mix(in srgb, var(--focus) 30%, transparent);
+  background: rgba(0, 127, 212, 0.3);
   color: var(--fg);
   max-width: 140px;
   overflow: hidden;
@@ -799,6 +939,7 @@ tr.d-del .d-text::before {
 
 ::-webkit-scrollbar-thumb {
   background: color-mix(in srgb, var(--muted) 50%, transparent);
+  background: rgba(128, 128, 128, 0.5);
   border-radius: 5px;
 }
 
@@ -820,6 +961,7 @@ tr.d-del .d-text::before {
   width: 4px;
   cursor: col-resize;
   background: color-mix(in srgb, var(--border) 60%, transparent);
+  background: rgba(128, 128, 128, 0.6);
 }
 
 .split-handle:hover,
@@ -970,20 +1112,24 @@ tr.d-del .d-text::before {
   user-select: none;
 }
 
+/* 列几何对齐约定（表头与提交行必须完全一致，否则分割线位置会偏）：
+   行      = .commit-row{padding-left:--graph-w} + .commit-info{padding:0 8px} + 各定宽列
+   表头    = .log-column-header-info{padding-left:calc(--graph-w + 8px)} + 各定宽列
+   列内边距 = 提交号 0，作者/日期 12px（两侧一致）
+   手柄净宽 = 0（7px 命中区被左右 -3.5px 外边距抵消），因此表头不因手柄产生累积偏移 */
 .log-column-header-info {
   flex: 1;
   min-width: 0;
   display: flex;
   align-items: center;
-  /* 图沟槽与行左内边距一致，保证表头与行各列对齐 */
-  padding-left: var(--graph-w, 60px);
+  /* 图沟槽 + 行内 .commit-info 的左内边距，保证表头与行各列起点一致 */
+  padding-left: calc(var(--graph-w, 60px) + 8px);
   padding-right: 8px;
 }
 
 .log-column-header-hash {
   flex: none;
   width: var(--col-hash-width, 50px);
-  padding-left: 4px;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -997,15 +1143,11 @@ tr.d-del .d-text::before {
   white-space: nowrap;
 }
 
-/* 图沟槽手柄：位于 padding-left 边界上，负外边距让它跨在图列与提交号列之间 */
-.log-column-resize-handle.first {
-  margin-left: -3px;
-}
-
 .log-column-header-author {
   flex: none;
   width: var(--col-author-width, 120px);
-  padding-left: 10px;
+  padding-left: 12px;
+  text-align: left;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -1014,19 +1156,22 @@ tr.d-del .d-text::before {
 .log-column-header-date {
   flex: none;
   width: var(--col-date-width, 145px);
-  padding-left: 10px;
+  padding-left: 12px;
+  text-align: left;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-/* 列宽手柄：7px 命中区跨列边界，可见 1px 细线由 ::after 居中绘制，
-   hover/拖拽/聚焦时变为焦点色 2px（Intellig log 表同款） */
+/* 列宽手柄：7px 命中区跨列边界居中，可见 1px 细线由 ::after 居中绘制，
+   hover/拖拽/聚焦时变为焦点色 2px（Intellig log 表同款）。
+   左右各 -3.5px 外边距 → 净布局宽度 0，表头列宽与行内列宽严格相等。 */
 .log-column-resize-handle {
   flex: none;
   width: 7px;
   align-self: stretch;
-  margin: 0 -3px;
+  margin-left: -3.5px;
+  margin-right: -3.5px;
   cursor: col-resize;
   position: relative;
   z-index: 2;
@@ -1047,7 +1192,7 @@ tr.d-del .d-text::before {
 .log-column-resize-handle:focus-visible::after {
   background: var(--focus);
   width: 2px;
-  left: 2px;
+  left: 2.5px;
 }
 
 /* 列宽拖拽进行中：全局禁止选字 + 统一 col-resize 光标 */
@@ -1132,10 +1277,12 @@ body.resizing-column {
 
 .commit-row.selected {
   background: color-mix(in srgb, var(--focus) 25%, transparent);
+  background: rgba(0, 127, 212, 0.25);
 }
 
 .commit-row.hit {
   background: color-mix(in srgb, var(--focus) 14%, transparent);
+  background: rgba(0, 127, 212, 0.14);
 }
 
 .commit-row:focus-visible {
@@ -1154,7 +1301,8 @@ body.resizing-column {
 
 .commit-hash {
   flex: none;
-  width: 50px;
+  /* 必须跟随 --col-hash-width，否则「提交 ↔ 消息」手柄拖了表头动、行不动 */
+  width: var(--col-hash-width, 50px);
   font-family: var(--vscode-editor-font-family, monospace);
   font-size: 11px;
   color: var(--muted);
@@ -1543,12 +1691,14 @@ button.icon:hover {
 .side-tab:hover {
   opacity: 0.95;
   background: color-mix(in srgb, var(--fg) 6%, transparent);
+  background: rgba(128, 128, 128, 0.06);
 }
 
 .side-tab.active {
   opacity: 1;
   font-weight: 600;
   background: color-mix(in srgb, var(--fg) 6%, transparent);
+  background: rgba(128, 128, 128, 0.06);
   border-bottom-color: var(--focus);
 }
 
@@ -1617,15 +1767,18 @@ button.icon:hover {
 .ss-row {
   padding: 5px 4px;
   border-bottom: 1px solid color-mix(in srgb, var(--border) 60%, transparent);
+  border-bottom: 1px solid rgba(128, 128, 128, 0.6);
   cursor: pointer;
 }
 
 .ss-row:hover {
   background: color-mix(in srgb, var(--fg) 5%, transparent);
+  background: rgba(128, 128, 128, 0.05);
 }
 
 .ss-row.active {
   background: color-mix(in srgb, var(--focus) 16%, transparent);
+  background: rgba(0, 127, 212, 0.16);
 }
 
 /* 单行展示：stash 索引编号 | 提交哈希 | 消息（消息过长省略；一行放得下所有信息）。
@@ -1727,11 +1880,13 @@ button.icon:hover {
 
 .br-row:hover {
   background: color-mix(in srgb, var(--fg) 6%, transparent);
+  background: rgba(128, 128, 128, 0.06);
 }
 
 .br-row.current {
   font-weight: 600;
   background: color-mix(in srgb, var(--focus) 14%, transparent);
+  background: rgba(0, 127, 212, 0.14);
 }
 
 /* 本地分支：固定三列布局，分支名过长以 … 省略 */
@@ -1800,6 +1955,7 @@ button.icon:hover {
 .br-acts .mini.icon:hover {
   color: var(--fg);
   background: color-mix(in srgb, var(--fg) 10%, transparent);
+  background: rgba(128, 128, 128, 0.1);
 }
 
 .br-name {
@@ -2280,12 +2436,14 @@ button.mini.icon {
 .side-tab:hover {
   opacity: 0.95;
   background: color-mix(in srgb, var(--fg) 6%, transparent);
+  background: rgba(128, 128, 128, 0.06);
 }
 
 .side-tab.active {
   opacity: 1;
   font-weight: 600;
   background: color-mix(in srgb, var(--fg) 6%, transparent);
+  background: rgba(128, 128, 128, 0.06);
   border-bottom-color: var(--focus);
 }
 
@@ -2351,15 +2509,18 @@ button.mini.icon {
 .ss-row {
   padding: 5px 4px;
   border-bottom: 1px solid color-mix(in srgb, var(--border) 60%, transparent);
+  border-bottom: 1px solid rgba(128, 128, 128, 0.6);
   cursor: pointer;
 }
 
 .ss-row:hover {
   background: color-mix(in srgb, var(--fg) 5%, transparent);
+  background: rgba(128, 128, 128, 0.05);
 }
 
 .ss-row.active {
   background: color-mix(in srgb, var(--focus) 16%, transparent);
+  background: rgba(0, 127, 212, 0.16);
 }
 
 .ss-line1 {

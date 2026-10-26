@@ -338,7 +338,7 @@ export class LogPanel {
         staged: false,
         range,
       });
-      this.diffEl.innerHTML = renderDiff(patch, this.diffMode, tail);
+      this.diffEl.innerHTML = renderDiff(patch, this.diffMode, tail, this.currentFile.path);
       bindDiffInteractions(
         this.diffEl,
         this.client,

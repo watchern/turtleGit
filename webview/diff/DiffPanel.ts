@@ -53,7 +53,7 @@ export class DiffPanel {
         staged: this.staged,
       });
       const view = document.getElementById('diff-view')!;
-      view.innerHTML = renderDiff(patch, this.diffMode, tail);
+      view.innerHTML = renderDiff(patch, this.diffMode, tail, this.filePath);
       bindDiffInteractions(
         view,
         this.client,

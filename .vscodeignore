@@ -5,6 +5,7 @@
 .history/**
 test/**
 dist-test/**
+tmp/**
 *.vsix
 .gitignore
 pnpm-lock.yaml

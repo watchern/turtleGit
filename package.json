@@ -2,7 +2,7 @@
   "name": "turtlegit",
   "displayName": "TurtleGit - TortoiseGit 风格的跨平台 Git 增强",
   "description": "在 VSCode 中复刻 TortoiseGit 的提交、浏览、对比体验：独立浮窗对话框、提交图、按块勾选提交。纯插件实现，不依赖 TortoiseGit，Linux/macOS/Windows 通用。",
-  "version": "0.3.27",
+  "version": "0.3.28",
   "packageManager": "pnpm@11.24.0",
   "publisher": "turtlegit",
   "license": "MIT",
@@ -11,7 +11,7 @@
     "url": "https://github.com/turtlegit/turtlegit.git"
   },
   "engines": {
-    "vscode": "^1.100.0"
+    "vscode": "^1.52.0"
   },
   "categories": [
     "SCM Providers",
@@ -318,14 +318,15 @@
     "compile": "node esbuild.js",
     "watch": "node esbuild.js --watch",
     "build": "node esbuild.js --production",
-    "test": "esbuild test/smoke.ts --bundle --platform=node --format=cjs --outfile=dist-test/smoke.cjs && node dist-test/smoke.cjs",
+    "test": "pnpm exec esbuild test/smoke.ts --bundle --platform=node --format=cjs --outfile=dist-test/smoke.cjs && node dist-test/smoke.cjs",
     "package": "vsce package"
   },
   "devDependencies": {
     "@types/node": "^22.10.0",
-    "@types/vscode": "1.100.0",
+    "@types/vscode": "1.52.0",
     "@vscode/vsce": "^4.0.0",
     "esbuild": "^0.24.0",
+    "highlight.js": "^11.12.0",
     "typescript": "^5.6.0"
   }
 }

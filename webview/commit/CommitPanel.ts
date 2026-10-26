@@ -573,7 +573,7 @@ export class CommitPanel {
         path,
         staged,
       });
-      this.diffEl.innerHTML = renderDiff(patch, this.diffMode, tail);
+      this.diffEl.innerHTML = renderDiff(patch, this.diffMode, tail, path);
       bindDiffInteractions(
         this.diffEl,
         this.client,

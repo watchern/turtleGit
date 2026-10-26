@@ -1,5 +1,6 @@
 import { RpcClient } from '../bridge';
 import { contextDiffRows, renderRows, DiffTail } from './DiffRenderer';
+import { languageForPath } from './highlight';
 
 export interface DiffContext {
   repoRoot: string;
@@ -101,6 +102,7 @@ export function bindDiffInteractions(
         const html = renderRows(
           contextDiffRows(oldLines, newLines, oldStart, newStart),
           mode,
+          languageForPath(ctx.path),
         );
         tr.insertAdjacentHTML('afterend', html);
         tr.classList.add('expanded');

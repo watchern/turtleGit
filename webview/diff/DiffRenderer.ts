@@ -1,5 +1,7 @@
 /** Unified patch 解析与并排/统一渲染（复刻 TortoiseGitMerge 的基础版） */
 
+import { escapeHtml, highlightLine, languageForPath, HIGHLIGHT_MAX_LINES } from './highlight';
+
 export interface DiffRow {
   kind: 'context' | 'add' | 'del' | 'header' | 'meta' | 'gap';
   leftNo?: number;
@@ -249,11 +251,7 @@ export function contextDiffRows(
 
 function esc(s: string | undefined): string {
   if (s === undefined) return '';
-  return s
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;');
+  return escapeHtml(s);
 }
 
 /** 横向波浪线（复刻 TortoiseGitMerge 的折叠行视觉） */
@@ -266,12 +264,27 @@ function gapRowHtml(r: DiffRow, colSpan: number): string {
   return `<tr class="d-gap" data-old-start="${r.oldStart}" data-old-end="${r.oldEnd}" data-new-start="${r.newStart}" data-new-end="${r.newEnd}"><td colspan="${colSpan}"><span class="d-gap-inner">${waveSvg()}<button class="d-gap-btn" type="button">展开 ${count} 行</button>${waveSvg()}</span></td></tr>`;
 }
 
-/** 渲染行数组为 HTML 片段（gap 展开后插入用） */
-export function renderRows(rows: DiffRow[], mode: 'side' | 'unified'): string {
-  return rows.map((r) => renderRow(r, mode)).join('');
+/**
+ * 由文件路径推断着色语言，并对超大 patch 直接放弃着色（避免拖慢渲染）。
+ * 纯新增/删除等无语言命中的情况返回 undefined → 退化为纯转义，与旧行为一致。
+ */
+export function diffLanguage(path: string | undefined, patch: string): string | undefined {
+  if (!path) return undefined;
+  let lines = 0;
+  for (let i = 0; i < patch.length; i++) {
+    if (patch.charCodeAt(i) === 10) lines++;
+  }
+  if (lines > HIGHLIGHT_MAX_LINES) return undefined;
+  return languageForPath(path);
 }
 
-function renderRow(r: DiffRow, mode: 'side' | 'unified'): string {
+/** 渲染行数组为 HTML 片段（gap 展开后插入用）。lang 为 highlight.js 语言名，缺省不着色 */
+export function renderRows(rows: DiffRow[], mode: 'side' | 'unified', lang?: string): string {
+  return rows.map((r) => renderRow(r, mode, lang)).join('');
+}
+
+function renderRow(r: DiffRow, mode: 'side' | 'unified', lang?: string): string {
+  const hl = (s: string | undefined): string => highlightLine(s, lang);
   if (r.kind === 'header') {
     return `<tr class="d-hunk"><td colspan="${mode === 'side' ? 4 : 2}">${esc(r.text)}</td></tr>`;
   }
@@ -284,31 +297,37 @@ function renderRow(r: DiffRow, mode: 'side' | 'unified'): string {
   if (mode === 'side') {
     return `<tr class="d-${r.kind}">
 <td class="d-no">${r.leftNo ?? ''}</td>
-<td class="d-left">${esc(r.left)}</td>
+<td class="d-left">${hl(r.left)}</td>
 <td class="d-no">${r.rightNo ?? ''}</td>
-<td class="d-right">${esc(r.right)}</td>
+<td class="d-right">${hl(r.right)}</td>
 </tr>`;
   }
   const sign = r.kind === 'add' ? '+' : r.kind === 'del' ? '-' : ' ';
   return `<tr class="d-${r.kind}">
 <td class="d-no">${sign}</td>
-<td class="d-text">${esc(r.text)}</td>
+<td class="d-text">${hl(r.text)}</td>
 </tr>`;
 }
 
-function renderSideBySide(rows: DiffRow[]): string {
-  return `<table class="diff-table"><colgroup><col class="c-no"><col><col class="c-no"><col></colgroup><tbody>${renderRows(rows, 'side')}</tbody></table>`;
+function renderSideBySide(rows: DiffRow[], lang?: string): string {
+  return `<table class="diff-table"><colgroup><col class="c-no"><col><col class="c-no"><col></colgroup><tbody>${renderRows(rows, 'side', lang)}</tbody></table>`;
 }
 
-function renderUnified(rows: DiffRow[]): string {
-  return `<table class="diff-table unified"><colgroup><col class="c-sign"><col></colgroup><tbody>${renderRows(rows, 'unified')}</tbody></table>`;
+function renderUnified(rows: DiffRow[], lang?: string): string {
+  return `<table class="diff-table unified"><colgroup><col class="c-sign"><col></colgroup><tbody>${renderRows(rows, 'unified', lang)}</tbody></table>`;
 }
 
-export function renderDiff(patch: string, mode: 'side' | 'unified', tail?: DiffTail): string {
+/**
+ * @param path 被比较文件路径（用于推断语言做语法高亮，缺省则纯转义）
+ */
+export function renderDiff(patch: string, mode: 'side' | 'unified', tail?: DiffTail, path?: string): string {
   if (!patch || !patch.trim()) {
     return '<div class="diff-empty">无差异</div>';
   }
-  return mode === 'side' ? renderSideBySide(rowsSideBySide(patch, tail)) : renderUnified(rowsUnified(patch, tail));
+  const lang = diffLanguage(path, patch);
+  return mode === 'side'
+    ? renderSideBySide(rowsSideBySide(patch, tail), lang)
+    : renderUnified(rowsUnified(patch, tail), lang);
 }
 
 export function patchStat(patch: string): { additions: number; deletions: number } {
