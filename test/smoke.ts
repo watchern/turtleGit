@@ -1583,6 +1583,33 @@ async function main(): Promise<void> {
     check('简→繁：空串安全', toTraditional('') === '');
   }
 
+  // ---- 守卫：所有 t()/i18n.t()/raw() 引用的 key 必须存在于字典，否则界面会把 key 本身当文案显示 ----
+  {
+    const root = path.resolve(__dirname, '..');
+    const refRe = /(?<![A-Za-z])t\(\s*['"`]([A-Za-z0-9_.]+)['"`]|(?:i18n\.)?raw\(\s*['"`]([A-Za-z0-9_.]+)['"`]/g;
+    const refs = new Set<string>();
+    const walk = (d: string): void => {
+      for (const e of fs.readdirSync(d)) {
+        const p = path.join(d, e);
+        const s = fs.statSync(p);
+        if (s.isDirectory()) {
+          if (['node_modules', 'dist', '.workbuddy', 'dist-test'].includes(e)) continue;
+          walk(p);
+        } else if (p.endsWith('.ts') && !p.endsWith('messages.ts')) {
+          const src = fs.readFileSync(p, 'utf8');
+          let m: RegExpExecArray | null;
+          while ((m = refRe.exec(src))) {
+            const k = m[1] || m[2];
+            if (k) refs.add(k);
+          }
+        }
+      }
+    };
+    for (const dir of ['src', 'webview', 'shared']) walk(path.join(root, dir));
+    const missing = [...refs].filter((k) => !(k in MESSAGES)).sort();
+    check('所有 t()/i18n.t()/raw() 引用的 key 都存在于 MESSAGES', missing.length === 0, missing);
+  }
+
   if (failures > 0) {
     console.error(`\n${failures} 个断言失败`);
     process.exit(1);

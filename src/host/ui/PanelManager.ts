@@ -741,7 +741,7 @@ export class PanelManager {
     });
     this.router.register('remote:setUrl', async ({ repoRoot, name, url, push }) => {
       await this.withNotify(
-        i18n.t('host.editingUrl', name, push ? i18n.t('common.push') : i18n.t('common.pull')),
+        i18n.t('host.editingUrl', name, push ? i18n.t('word.push') : i18n.t('word.pull')),
         () => this.ops.setRemoteUrl(repoRoot, name, url, push === true),
       );
       await this.store.touch(repoRoot);
