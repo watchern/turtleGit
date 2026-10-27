@@ -1,4 +1,5 @@
 import * as vscode from 'vscode';
+import * as i18n from '../i18n';
 import { RepositoryStore } from '../core/RepositoryStore';
 import { absPathIn, relPathIn } from '../core/paths';
 import { FileStatus } from '../../../shared/protocol';
@@ -15,13 +16,13 @@ const BADGE: Record<string, string> = {
 };
 
 const LABEL_CN: Record<string, string> = {
-  modified: '已修改',
-  added: '新增',
-  deleted: '已删除',
-  renamed: '重命名',
-  copied: '复制',
-  typechanged: '类型变更',
-  conflicted: '冲突',
+  modified: i18n.t('deco.modified'),
+  added: i18n.t('status.added'),
+  deleted: i18n.t('deco.deleted'),
+  renamed: i18n.t('branches.renameOp'),
+  copied: i18n.t('status.copied'),
+  typechanged: i18n.t('deco.typechanged'),
+  conflicted: i18n.t('status.conflict'),
 };
 
 /**
@@ -64,7 +65,7 @@ export function decorationFor(file: FileStatus): vscode.FileDecoration {
     return {
       badge: '!',
       color: new vscode.ThemeColor('gitDecoration.conflictingResourceForeground'),
-      tooltip: 'TurtleGit: 冲突',
+      tooltip: i18n.t('deco.conflictTip'),
       propagate: false,
     };
   }
@@ -72,7 +73,7 @@ export function decorationFor(file: FileStatus): vscode.FileDecoration {
     return {
       badge: 'U',
       color: new vscode.ThemeColor('gitDecoration.untrackedResourceForeground'),
-      tooltip: 'TurtleGit: 未版本控制',
+      tooltip: i18n.t('deco.untrackedTip'),
       propagate: false,
     };
   }
@@ -80,7 +81,7 @@ export function decorationFor(file: FileStatus): vscode.FileDecoration {
     return {
       badge: 'A',
       color: new vscode.ThemeColor('gitDecoration.addedResourceForeground'),
-      tooltip: 'TurtleGit: 已暂存新增',
+      tooltip: i18n.t('deco.stagedAddedTip'),
       propagate: false,
     };
   }
@@ -88,7 +89,7 @@ export function decorationFor(file: FileStatus): vscode.FileDecoration {
     return {
       badge: 'M',
       color: new vscode.ThemeColor('gitDecoration.modifiedResourceForeground'),
-      tooltip: 'TurtleGit: 已暂存 + 工作区修改',
+      tooltip: i18n.t('deco.stagedAndWorktreeTip'),
       propagate: false,
     };
   }
@@ -97,7 +98,7 @@ export function decorationFor(file: FileStatus): vscode.FileDecoration {
     return {
       badge: BADGE[s] ?? 'M',
       color: new vscode.ThemeColor('gitDecoration.stagedModifiedResourceForeground'),
-      tooltip: `TurtleGit: 已暂存（${LABEL_CN[s] ?? s}）`,
+      tooltip: i18n.t('deco.stagedTip', LABEL_CN[s] ?? s),
       propagate: false,
     };
   }
@@ -112,7 +113,7 @@ export function decorationFor(file: FileStatus): vscode.FileDecoration {
     return {
       badge: BADGE[s] ?? 'M',
       color: new vscode.ThemeColor(colorKey),
-      tooltip: `TurtleGit: 工作区${LABEL_CN[s] ?? s}`,
+      tooltip: i18n.t('deco.worktreeTip', LABEL_CN[s] ?? s),
       propagate: false,
     };
   }

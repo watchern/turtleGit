@@ -1,4 +1,5 @@
 import * as vscode from 'vscode';
+import * as i18n from '../i18n';
 import * as path from 'path';
 import { GitService } from '../git/GitService';
 import { relPathIn } from '../core/paths';
@@ -47,19 +48,19 @@ export class TgBlobProvider implements vscode.FileSystemProvider {
   }
 
   readDirectory(): never {
-    throw new Error('TurtleGit: 目录读取不支持');
+    throw new Error(i18n.t('fs.dirNotSupported'));
   }
   createDirectory(): never {
-    throw new Error('TurtleGit: 只读 scheme');
+    throw new Error(i18n.t('fs.readonly'));
   }
   writeFile(): never {
-    throw new Error('TurtleGit: 只读 scheme');
+    throw new Error(i18n.t('fs.readonly'));
   }
   delete(): never {
-    throw new Error('TurtleGit: 只读 scheme');
+    throw new Error(i18n.t('fs.readonly'));
   }
   rename(): never {
-    throw new Error('TurtleGit: 只读 scheme');
+    throw new Error(i18n.t('fs.readonly'));
   }
 
   /** 取 ref 版本内容；文件在该 ref 不存在时返回 null */

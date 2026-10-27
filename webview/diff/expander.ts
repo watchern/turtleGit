@@ -1,4 +1,5 @@
 import { RpcClient } from '../bridge';
+import { t } from '../i18n';
 import { contextDiffRows, renderRows, DiffTail } from './DiffRenderer';
 import { languageForPath } from './highlight';
 
@@ -78,14 +79,14 @@ export function bindDiffInteractions(
         tr.classList.remove('expanded');
         if (btn) {
           btn.disabled = false;
-          btn.textContent = `展开 ${count} 行`;
+          btn.textContent = t('diff.expandLines', count);
         }
         return;
       }
 
       if (btn) {
         btn.disabled = true;
-        btn.textContent = '加载中…';
+        btn.textContent = t('diff.loading');
       }
       try {
         const { oldLines, newLines } = await client.send('diff:context', {
@@ -108,14 +109,14 @@ export function bindDiffInteractions(
         tr.classList.add('expanded');
         if (btn) {
           btn.disabled = false;
-          btn.textContent = '收起';
+          btn.textContent = t('commit.collapse');
         }
         // 新插入的行同样支持行号高亮
         bindRowHighlight(tr.parentElement ?? root);
       } catch (err) {
         if (btn) {
           btn.disabled = false;
-          btn.textContent = `展开失败：${String(err)}`;
+          btn.textContent = t('diff.expandFailed', String(err));
         }
       }
     });

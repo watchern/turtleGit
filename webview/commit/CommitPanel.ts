@@ -1,4 +1,5 @@
 import { RpcClient } from '../bridge';
+import { t } from '../i18n';
 import { renderDiff, patchStat } from '../diff/DiffRenderer';
 import { bindDiffInteractions, loadPatchAndCounts } from '../diff/expander';
 import { buildFileTree, collectFiles, FileTreeNode } from '../ui/fileTree';
@@ -82,7 +83,7 @@ export class CommitPanel {
       if ((id.name || id.email) && !this.inpSignOff.value.trim()) {
         this.inpSignOff.value = `${id.name} <${id.email}>`.trim();
       }
-      this.inpSignOff.placeholder = id.name || id.email ? `${id.name} <${id.email}>` : '姓名 <邮箱>';
+      this.inpSignOff.placeholder = id.name || id.email ? `${id.name} <${id.email}>` : t('commit.signoffNamePlaceholder');
     } catch {
       /* 身份读取失败不影响提交 */
     }
@@ -93,48 +94,48 @@ export class CommitPanel {
   private build(): void {
     this.el.innerHTML = `
 <div class="toolbar">
-  <button id="btn-refresh" title="刷新 (F5)">刷新</button>
-  <button id="btn-view-mode" title="切换树形/列表视图">树形</button>
+  <button id="btn-refresh" title="${t('common.refreshTip')}">${t('common.refresh')}</button>
+  <button id="btn-view-mode" title="${t('commit.modeTip')}">${t('commit.mode.tree')}</button>
   <span class="sep"></span>
-  <button id="btn-select-all" title="全选">全选</button>
-  <button id="btn-select-none" title="全部不选">全不选</button>
+  <button id="btn-select-all" title="${t('commit.selectAll')}">${t('commit.selectAll')}</button>
+  <button id="btn-select-none" title="${t('commit.selectNone')}">${t('commit.selectNone')}</button>
   <span class="sep"></span>
-  <label class="chk"><input type="checkbox" id="chk-untracked" checked> 显示未版本控制</label>
-  <label class="chk"><input type="checkbox" id="chk-ignored"> 显示忽略文件</label>
+  <label class="chk"><input type="checkbox" id="chk-untracked" checked> ${t('commit.showUntracked')}</label>
+  <label class="chk"><input type="checkbox" id="chk-ignored"> ${t('commit.showIgnored')}</label>
   <span class="flex"></span>
   <span class="repo-name" id="repo-name"></span>
 </div>
 <div class="split">
   <section class="pane left">
     <div class="pane-head">
-      <span>变更文件</span>
+      <span>${t('common.files')}</span>
       <span class="count" id="file-count"></span>
     </div>
     <div class="file-list" id="file-list"></div>
   </section>
   <section class="pane right">
     <div class="pane-head">
-      <span id="diff-title">差异</span>
+      <span id="diff-title">${t('common.diff')}</span>
       <span class="diff-stat" id="diff-stat"></span>
       <span class="flex"></span>
-      <button class="mini" id="btn-diff-mode">并排</button>
-      <button class="mini" id="btn-open-editor">在编辑器中打开</button>
+      <button class="mini" id="btn-diff-mode">${t('diff.modeSide')}</button>
+      <button class="mini" id="btn-open-editor">${t('common.openEditor')}</button>
     </div>
-    <div class="diff-view" id="diff-view"><div class="diff-empty">选择文件以查看差异</div></div>
+    <div class="diff-view" id="diff-view"><div class="diff-empty">${t('common.selectFileDiff')}</div></div>
     <div class="pane-head message-head">
-      <span>提交信息</span>
-      <span class="hint">第一行作为摘要</span>
+      <span>${t('commit.messageLabel')}</span>
+      <span class="hint">${t('commit.messageHint')}</span>
     </div>
-    <textarea id="commit-message" class="message" placeholder="在此输入提交信息…&#10;&#10;Ctrl+Enter 提交"></textarea>
+    <textarea id="commit-message" class="message" placeholder="${t('commit.messagePlaceholder')}"></textarea>
     <div class="commit-foot">
-      <label class="chk"><input type="checkbox" id="chk-amend"> 修订上次提交 (Amend)</label>
-      <label class="chk"><input type="checkbox" id="chk-signoff"> 签署 (Signed-off-by)</label>
-      <input type="text" id="inp-signoff" class="signoff-input" placeholder="姓名 &lt;邮箱&gt;" hidden>
-      <label class="chk"><input type="checkbox" id="chk-push"> 提交后推送</label>
+      <label class="chk"><input type="checkbox" id="chk-amend"> ${t('commit.chkAmend')}</label>
+      <label class="chk"><input type="checkbox" id="chk-signoff"> ${t('commit.chkSignoff')}</label>
+      <input type="text" id="inp-signoff" class="signoff-input" placeholder="${t('commit.signoffNamePlaceholder')}" hidden>
+      <label class="chk"><input type="checkbox" id="chk-push"> ${t('commit.chkPush')}</label>
       <span class="sel-stat" id="sel-stat"></span>
       <span class="flex"></span>
-      <label class="chk"><input type="checkbox" id="chk-closeafter" checked> 提交后关闭</label>
-      <button class="primary" id="btn-commit">提交</button>
+      <label class="chk"><input type="checkbox" id="chk-closeafter" checked> ${t('commit.chkCloseAfter')}</label>
+      <button class="primary" id="btn-commit">${t('commit.btn.commit')}</button>
     </div>
   </section>
 </div>
@@ -185,7 +186,7 @@ export class CommitPanel {
     });
     this.must('btn-diff-mode').addEventListener('click', () => {
       this.diffMode = this.diffMode === 'side' ? 'unified' : 'side';
-      this.must('btn-diff-mode').textContent = this.diffMode === 'side' ? '并排' : '统一';
+      this.must('btn-diff-mode').textContent = this.diffMode === 'side' ? t('diff.modeSide') : t('diff.modeUnified');
       this.persist();
       void this.showDiff(this.selectedPath);
     });
@@ -219,7 +220,7 @@ export class CommitPanel {
 
   /** 切换按钮文字：显示"点击后切到的目标模式" */
   private updateViewModeButton(): void {
-    this.must('btn-view-mode').textContent = this.viewMode === 'tree' ? '列表' : '树形';
+    this.must('btn-view-mode').textContent = this.viewMode === 'tree' ? t('commit.mode.list') : t('commit.mode.tree');
   }
 
   // ---------- 会话状态持久化 ----------
@@ -246,7 +247,7 @@ export class CommitPanel {
     if (typeof s.pushAfter === 'boolean') this.chkPush.checked = s.pushAfter;
     (this.must('chk-untracked') as HTMLInputElement).checked = this.showUntracked;
     (this.must('chk-ignored') as HTMLInputElement).checked = this.showIgnored;
-    this.must('btn-diff-mode').textContent = this.diffMode === 'side' ? '并排' : '统一';
+    this.must('btn-diff-mode').textContent = this.diffMode === 'side' ? t('diff.modeSide') : t('diff.modeUnified');
   }
 
   /** 持久化会话状态（webview 重载后恢复） */
@@ -355,7 +356,7 @@ export class CommitPanel {
     const files = this.visibleFiles();
     this.must('file-count').textContent = `（${files.length}）`;
     if (!files.length) {
-      this.listEl.innerHTML = '<div class="empty">没有变更</div>';
+      this.listEl.innerHTML = `<div class="empty">${t('commit.noChanges')}</div>`;
     } else {
       this.listEl.innerHTML =
         this.viewMode === 'tree' ? this.renderTree(buildFileTree(files), 0) : this.renderFlat(files);
@@ -392,7 +393,7 @@ export class CommitPanel {
   private updateSelStat(): void {
     const el = this.must('sel-stat');
     if (!this.selected.size) {
-      el.textContent = '未选择文件';
+      el.textContent = t('commit.noSelection');
       return;
     }
     let additions = 0;
@@ -405,7 +406,7 @@ export class CommitPanel {
       }
     }
     el.innerHTML =
-      `已选 <b>${this.selected.size}</b> 个文件：` +
+      t('commit.selStat', this.selected.size) +
       `<span class="add">+${additions}</span> <span class="del">-${deletions}</span>`;
   }
 
@@ -450,7 +451,7 @@ export class CommitPanel {
           const all = childFiles.length > 0 && selectedCount === childFiles.length;
           const indeterminate = selectedCount > 0 && !all;
           const indent = 10 + depth * 14;
-          const twisty = `<span class="dir-twisty${collapsed ? '' : ' open'}" title="展开/折叠"><svg width="12" height="12" viewBox="0 0 12 12" aria-hidden="true"><path d="M4.5 1.5 8.5 6 4.5 10.5" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg></span>`;
+          const twisty = `<span class="dir-twisty${collapsed ? '' : ' open'}" title="${t('common.expandCollapse')}"><svg width="12" height="12" viewBox="0 0 12 12" aria-hidden="true"><path d="M4.5 1.5 8.5 6 4.5 10.5" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg></span>`;
           const row = `<div class="dir-row" data-dir="${this.escAttr(n.path)}" style="padding-left:${indent}px" title="${this.escAttr(n.path)}">
   ${twisty}
   <input type="checkbox" class="dir-check" data-dir="${this.escAttr(n.path)}"${all ? ' checked' : ''}${indeterminate ? ' data-indeterminate="1"' : ''}>
@@ -559,14 +560,14 @@ export class CommitPanel {
 
   private async showDiff(path?: string): Promise<void> {
     if (!path) {
-      this.diffEl.innerHTML = '<div class="diff-empty">选择文件以查看差异</div>';
+      this.diffEl.innerHTML = `<div class="diff-empty">${t('common.selectFileDiff')}</div>`;
       this.statEl.textContent = '';
-      this.must('diff-title').textContent = '差异';
+      this.must('diff-title').textContent = t('common.diff');
       return;
     }
     const file = this.files.find((f) => f.path === path);
     const staged = this.isStagedView(file);
-    this.must('diff-title').textContent = `${path}（${staged ? '已暂存' : '工作区'}）`;
+    this.must('diff-title').textContent = `${path}（${staged ? t('status.staged') : t('status.worktree')}）`;
     try {
       const { patch, tail } = await loadPatchAndCounts(this.client, {
         repoRoot: this.repoRoot,
@@ -583,7 +584,7 @@ export class CommitPanel {
       const stat = patchStat(patch);
       this.statEl.textContent = stat.additions || stat.deletions ? `+${stat.additions} -${stat.deletions}` : '';
     } catch (err) {
-      this.diffEl.innerHTML = `<div class="diff-empty">无法读取差异：${this.esc(String(err))}</div>`;
+      this.diffEl.innerHTML = `<div class="diff-empty">${t('common.diffFailed', this.esc(String(err)))}</div>`;
     }
   }
 
@@ -591,24 +592,24 @@ export class CommitPanel {
     const menu = this.must('ctx-menu');
     const items: Array<{ label: string; action: () => void }> = [
       {
-        label: '暂存 (Stage)',
+        label: t('commit.menu.stage'),
         action: () => void this.client.send('status:stage', { repoRoot: this.repoRoot, paths: [path] }),
       },
       {
-        label: '取消暂存 (Unstage)',
+        label: t('commit.menu.unstage'),
         action: () => void this.client.send('status:unstage', { repoRoot: this.repoRoot, paths: [path] }),
       },
       {
-        label: '放弃修改 (Revert)',
+        label: t('commit.menu.revert'),
         action: async () => {
-          const ok = await this.confirm(`确定放弃 ${path} 的修改？此操作不可恢复。`);
+          const ok = await this.confirm(t('commit.confirmRevertFile', path));
           if (ok) {
             await this.client.send('status:discard', { repoRoot: this.repoRoot, paths: [path] });
           }
         },
       },
       {
-        label: '添加到 .gitignore',
+        label: t('commit.addToGitignore'),
         action: () => void this.client.send('status:ignore', { repoRoot: this.repoRoot, paths: [path] }),
       },
     ];
@@ -659,18 +660,18 @@ export class CommitPanel {
     if (this.busy) return;
     const message = this.msgEl.value.trim();
     if (!message) {
-      this.flash('请先输入提交信息。');
+      this.flash(t('commit.needMessage'));
       this.msgEl.focus();
       return;
     }
     const stagedCount = this.files.filter((f) => f.index !== 'none').length;
     if (this.selected.size === 0 && stagedCount === 0) {
-      this.flash('没有可提交的内容。');
+      this.flash(t('commit.nothingToCommit'));
       return;
     }
     this.busy = true;
     this.btnCommit.disabled = true;
-    this.btnCommit.textContent = '提交中…';
+    this.btnCommit.textContent = t('commit.committing');
     try {
       const files = this.selected.size ? [...this.selected] : undefined;
       const result = await this.client.send('commit:create', {
@@ -685,20 +686,20 @@ export class CommitPanel {
       this.msgEl.value = '';
       this.chkAmend.checked = false;
       this.clearPersistedState();
-      let text = `提交成功：${result.hash.slice(0, 7)}`;
-      if (result.pushed === true) text += `（已推送：${result.pushMessage || '完成'}）`;
-      else if (result.pushed === false) text += `（推送失败：${result.pushMessage || '未知原因'}）`;
+      let text = t('commit.commitOk', result.hash.slice(0, 7));
+      if (result.pushed === true) text += t('commit.pushed', result.pushMessage || t('common.done'));
+      else if (result.pushed === false) text += t('commit.pushFailed', result.pushMessage || t('common.unknown'));
       this.toast(text);
       const closeAfter = (this.must('chk-closeafter') as HTMLInputElement).checked;
       if (closeAfter) {
         this.client.command('closePanel');
       }
     } catch (err) {
-      this.toast(`提交失败：${String(err)}`, true);
+      this.toast(t('commit.commitFailed', String(err)), true);
     } finally {
       this.busy = false;
       this.btnCommit.disabled = false;
-      this.btnCommit.textContent = '提交';
+      this.btnCommit.textContent = t('commit.btn.commit');
     }
   }
 

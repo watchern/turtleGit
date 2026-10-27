@@ -3,6 +3,7 @@ import { buildFileTree, collectDirs, collectFiles, FileTreeNode } from '../ui/fi
 import { loadState, saveState } from '../state';
 import { statusBadge, esc, escAttr } from './common';
 import { showMenuAt } from '../ui/dialogs';
+import { t } from '../i18n';
 import { BranchInfo, FileStatus, FileNumstat, StatusViewMode } from '../../shared/protocol';
 
 /** 右键菜单项：有 children 时点击展开子菜单（渲染为带 › 的父项） */
@@ -15,10 +16,11 @@ interface MenuItem {
 /** 提交方式（底部整行按钮的下拉选项）：普通提交 / 修订提交(Amend) / 提交后推送 */
 export type CommitMode = 'normal' | 'amend' | 'push';
 
-const COMMIT_MODE_LABEL: Record<CommitMode, string> = {
-  normal: '提交',
-  amend: '修订提交',
-  push: '提交并推送',
+/** 每种提交方式对应的文案 key（主按钮与下拉菜单共用） */
+const COMMIT_MODE_KEY: Record<CommitMode, string> = {
+  normal: 'commit.modeMenu.normal',
+  amend: 'commit.modeMenu.amend',
+  push: 'commit.modeMenu.push',
 };
 
 /** 侧边栏提交视图的持久化状态（webview 重载后恢复提交信息与勾选） */
@@ -117,30 +119,32 @@ export class CommitSidebarPanel {
     this.el.innerHTML = `
 <div class="sidebar-commit">
   <div class="sc-head">
-    <button class="mini" id="sc-mode" title="切换树形/列表视图">树形</button>
-    <button class="mini" id="sc-collapse" title="一键收起 / 展开所有目录">收起</button>
+    <button class="mini" id="sc-mode" title="${t('commit.modeTip')}">${t('commit.mode.tree')}</button>
+    <button class="mini" id="sc-collapse" title="${t('commit.collapseTip')}">${t('commit.collapse')}</button>
     <span class="flex"></span>
-    <label class="chk"><input type="checkbox" id="sc-untracked" checked> 未版本</label>
-    <label class="chk"><input type="checkbox" id="sc-ignored"> 忽略文件</label>
-    <button class="icon" id="sc-refresh" title="刷新 (F5)">
+    <label class="chk"><input type="checkbox" id="sc-untracked" checked> ${t('commit.filterUntracked')}</label>
+    <label class="chk"><input type="checkbox" id="sc-ignored"> ${t('commit.filterIgnored')}</label>
+    <button class="icon" id="sc-refresh" title="${t('common.refreshTip')}">
       <svg width="13" height="13" viewBox="0 0 16 16" aria-hidden="true"><path d="M13.5 8a5.5 5.5 0 1 1-1.6-3.9" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/><path d="M13.9 1.6v3.3h-3.3" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
     </button>
   </div>
   <div class="file-list sc-list" id="sc-list"></div>
   <div class="sc-foot">
     <div class="sel-stat" id="sc-stat"></div>
-    <textarea id="sc-message" class="message" rows="4" placeholder="提交信息…（Ctrl+Enter 提交）"></textarea>
+    <textarea id="sc-message" class="message" rows="4" placeholder="${t('commit.messagePlaceholder')}"></textarea>
     <div class="sc-actions">
-      <label class="chk"><input type="checkbox" id="sc-signoff"> 签署</label>
+      <label class="chk"><input type="checkbox" id="sc-signoff"> ${t('commit.signoff')}</label>
       <span class="flex"></span>
-    </div>
-    <div class="sc-commit-row">
-      <button class="primary sc-commit-main" id="sc-commit">提交</button>
-      <button class="primary sc-commit-mode" id="sc-commit-mode" title="切换提交方式：普通提交 / 修订提交 / 提交后推送" aria-haspopup="true" aria-expanded="false">▾</button>
     </div>
     <div class="sc-signoff" id="sc-signoff-row" hidden>
       <input type="text" id="sc-signoff-name" class="signoff-input"
-             placeholder="签署人：姓名 &lt;邮箱&gt;" title="留空则使用 git 配置的 user.name / user.email">
+             placeholder="${t('commit.signoffPlaceholder')}" title="${t('commit.signoffTip')}">
+    </div>
+    <div class="sc-commit-row">
+      <button class="primary sc-commit-main" id="sc-commit">${t('commit.btn.commit')}</button>
+      <button class="primary sc-commit-mode" id="sc-commit-mode" title="${t('commit.modeBtnTip')}" aria-haspopup="true" aria-expanded="false">
+        <svg width="20" height="20" viewBox="0 0 20 20" aria-hidden="true"><path d="M5 8l5 5 5-5" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      </button>
     </div>
   </div>
 </div>
@@ -161,13 +165,14 @@ export class CommitSidebarPanel {
       e.preventDefault();
       e.stopPropagation();
       const rect = this.btnCommitMode.getBoundingClientRect();
+      const modes: CommitMode[] = ['normal', 'amend', 'push'];
       showMenuAt(
         this.must('sc-menu'),
         rect.left,
         rect.bottom,
-        [{ label: '普通提交' }, { label: '修订提交（Amend）' }, { label: '提交后推送' }],
+        modes.map((m) => ({ label: t(COMMIT_MODE_KEY[m]) })),
         (i) => {
-          this.commitMode = (['normal', 'amend', 'push'] as CommitMode[])[i] ?? 'normal';
+          this.commitMode = modes[i] ?? 'normal';
           this.syncCommitMode();
           this.persist();
         },
@@ -228,7 +233,8 @@ export class CommitSidebarPanel {
   }
 
   private updateModeButton(): void {
-    this.must('sc-mode').textContent = this.viewMode === 'tree' ? '列表' : '树形';
+    this.must('sc-mode').textContent =
+      this.viewMode === 'tree' ? t('commit.mode.list') : t('commit.mode.tree');
     // 一键收起只在树形模式可用
     this.must('sc-collapse').style.display = this.viewMode === 'tree' ? '' : 'none';
   }
@@ -238,7 +244,7 @@ export class CommitSidebarPanel {
     if (this.viewMode !== 'tree') return;
     const dirs = collectDirs(buildFileTree(this.visibleFiles()));
     const allCollapsed = dirs.length > 0 && dirs.every((d) => this.collapsedDirs.has(d));
-    this.must('sc-collapse').textContent = allCollapsed ? '展开' : '收起';
+    this.must('sc-collapse').textContent = allCollapsed ? t('commit.expand') : t('commit.collapse');
   }
 
   // ---------- 状态持久化 ----------
@@ -272,15 +278,15 @@ export class CommitSidebarPanel {
 
   /** 把当前提交方式同步到整行按钮（主按钮文案 + 下拉标题） */
   private syncCommitMode(): void {
-    this.btnCommit.textContent = COMMIT_MODE_LABEL[this.commitMode];
-    const hint =
+    this.btnCommit.textContent = t(COMMIT_MODE_KEY[this.commitMode]);
+    const hintKey =
       this.commitMode === 'normal'
-        ? '普通提交'
+        ? 'commit.modeHint.normal'
         : this.commitMode === 'amend'
-          ? '修订提交（Amend）：并入上一个提交'
-          : '提交后推送：提交成功即 push 到上游';
-    this.btnCommit.title = hint;
-    this.btnCommitMode.title = `当前：${hint}\n点击下拉可切换为 普通提交 / 修订提交 / 提交后推送`;
+          ? 'commit.modeHint.amend'
+          : 'commit.modeHint.push';
+    this.btnCommit.title = t(hintKey);
+    this.btnCommitMode.title = t('commit.modeBtnTip', t(hintKey));
   }
 
   private persist(): void {
@@ -338,13 +344,13 @@ export class CommitSidebarPanel {
 
   private async reload(initialPaths?: string[]): Promise<void> {
     if (!this.repoRoot) {
-      this.listEl.innerHTML = '<div class="empty">未发现 git 仓库</div>';
+      this.listEl.innerHTML = `<div class="empty">${t('commit.noRepo')}</div>`;
       return;
     }
     try {
       this.files = await this.client.send('status:list', { repoRoot: this.repoRoot });
     } catch (err) {
-      this.listEl.innerHTML = `<div class="empty">无法读取仓库状态：${esc(String(err))}</div>`;
+      this.listEl.innerHTML = `<div class="empty">${t('commit.readStatusFailed', esc(String(err)))}</div>`;
       return;
     }
     this.selected.clear();
@@ -395,7 +401,7 @@ export class CommitSidebarPanel {
     const parts: string[] = [];
     if (this.branch) parts.push(this.renderBranchRow(files));
     if (!files.length) {
-      parts.push('<div class="empty">没有变更</div>');
+      parts.push(`<div class="empty">${t('commit.noChanges')}</div>`);
     } else if (!this.branchCollapsed) {
       // 分支行是第一级，文件整体下挂一层：树形 depth 从 1 起，列表模式左缩进 10px
       parts.push(
@@ -410,14 +416,14 @@ export class CommitSidebarPanel {
     this.updateCollapseButton();
   }
 
-  /** 仓库状态中文名（分支行上非 clean 时提示） */
-  private static readonly STATE_CN: Record<string, string> = {
-    merging: '合并中',
-    rebasing: '变基中',
-    'cherry-picking': '拣选中',
-    reverting: '还原中',
-    bisecting: '二分查找中',
-    applying: '应用补丁中',
+  /** 仓库状态名（分支行上非 clean 时提示） */
+  private static readonly STATE_KEY: Record<string, string> = {
+    merging: 'commit.state.merging',
+    rebasing: 'commit.state.rebasing',
+    'cherry-picking': 'commit.state.cherryPicking',
+    reverting: 'commit.state.reverting',
+    bisecting: 'commit.state.bisecting',
+    applying: 'commit.state.applying',
   };
 
   /**
@@ -431,15 +437,15 @@ export class CommitSidebarPanel {
     const all = files.length > 0 && selectedCount === files.length;
     const indeterminate = selectedCount > 0 && !all;
     const ab =
-      (b.ahead ? `<span class="branch-ab" title="领先上游 ${b.ahead} 个提交">↑${b.ahead}</span>` : '') +
-      (b.behind ? `<span class="branch-ab" title="落后上游 ${b.behind} 个提交">↓${b.behind}</span>` : '');
+      (b.ahead ? `<span class="branch-ab" title="${t('commit.aheadTip', b.ahead)}">↑${b.ahead}</span>` : '') +
+      (b.behind ? `<span class="branch-ab" title="${t('commit.behindTip', b.behind)}">↓${b.behind}</span>` : '');
     const state =
       b.state !== 'clean'
-        ? `<span class="branch-state">${esc(CommitSidebarPanel.STATE_CN[b.state] ?? b.state)}</span>`
+        ? `<span class="branch-state">${esc(t(CommitSidebarPanel.STATE_KEY[b.state] ?? b.state))}</span>`
         : '';
     const name = esc(`${b.name}${b.detached ? ' (detached)' : ''}`);
-    return `<div class="branch-row${this.branchCollapsed ? ' collapsed' : ''}" title="${escAttr(`${b.name}（当前分支）`)}">
-  <span class="dir-twisty${this.branchCollapsed ? '' : ' open'}" title="展开/折叠文件列表"><svg width="12" height="12" viewBox="0 0 12 12" aria-hidden="true"><path d="M4.5 1.5 8.5 6 4.5 10.5" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg></span>
+    return `<div class="branch-row${this.branchCollapsed ? ' collapsed' : ''}" title="${escAttr(t('commit.currentBranchTip', b.name))}">
+  <span class="dir-twisty${this.branchCollapsed ? '' : ' open'}" title="${t('commit.branchTwistyTip')}"><svg width="12" height="12" viewBox="0 0 12 12" aria-hidden="true"><path d="M4.5 1.5 8.5 6 4.5 10.5" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg></span>
   <input type="checkbox" class="branch-check"${all ? ' checked' : ''}${indeterminate ? ' data-indeterminate="1"' : ''}>
   <svg class="branch-icon" width="13" height="13" viewBox="0 0 16 16" aria-hidden="true"><circle cx="4.5" cy="3.5" r="1.8" fill="none" stroke="currentColor" stroke-width="1.5"/><circle cx="4.5" cy="12.5" r="1.8" fill="none" stroke="currentColor" stroke-width="1.5"/><circle cx="11.5" cy="5" r="1.8" fill="none" stroke="currentColor" stroke-width="1.5"/><path d="M4.5 5.3v5.4M11.5 6.8c0 1.2-1.6 1.7-3 1.7h-4" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>
   <span class="branch-name">${name}</span>
@@ -462,7 +468,7 @@ export class CommitSidebarPanel {
   private updateSelStat(): void {
     const el = this.must('sc-stat');
     if (!this.selected.size) {
-      el.textContent = '未选择文件';
+      el.textContent = t('commit.noSelection');
       return;
     }
     let additions = 0;
@@ -475,7 +481,7 @@ export class CommitSidebarPanel {
       }
     }
     el.innerHTML =
-      `已选 <b>${this.selected.size}</b> 个文件：` +
+      t('commit.selStat', this.selected.size) +
       `<span class="add">+${additions}</span> <span class="del">-${deletions}</span>`;
   }
 
@@ -513,7 +519,7 @@ export class CommitSidebarPanel {
           const all = childFiles.length > 0 && selectedCount === childFiles.length;
           const indeterminate = selectedCount > 0 && !all;
           const indent = depth * 10;
-          const twisty = `<span class="dir-twisty${collapsed ? '' : ' open'}" title="展开/折叠"><svg width="12" height="12" viewBox="0 0 12 12" aria-hidden="true"><path d="M4.5 1.5 8.5 6 4.5 10.5" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg></span>`;
+          const twisty = `<span class="dir-twisty${collapsed ? '' : ' open'}" title="${t('commit.branchTwistyTip')}"><svg width="12" height="12" viewBox="0 0 12 12" aria-hidden="true"><path d="M4.5 1.5 8.5 6 4.5 10.5" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg></span>`;
           const row = `<div class="dir-row" data-dir="${escAttr(n.path)}" style="padding-left:${indent}px" title="${escAttr(n.path)}">
   ${twisty}
   <input type="checkbox" class="dir-check" data-dir="${escAttr(n.path)}"${all ? ' checked' : ''}${indeterminate ? ' data-indeterminate="1"' : ''}>
@@ -631,41 +637,41 @@ export class CommitSidebarPanel {
     const repoRoot = this.repoRoot;
     const ignoreSub = (): MenuItem[] => [
       {
-        label: '仓库根 .gitignore',
+        label: t('commit.ignore.gitignore'),
         action: () =>
           void this.client.send('status:ignore', { repoRoot, paths: [path], target: 'gitignore' }),
       },
       {
-        label: '.git/info/exclude（仅本地）',
+        label: t('commit.ignore.exclude'),
         action: () =>
           void this.client.send('status:ignore', { repoRoot, paths: [path], target: 'exclude' }),
       },
     ];
     const items: MenuItem[] = [
       {
-        label: '比较差异（VSCode 对比）',
+        label: t('commit.menu.diff'),
         action: () => this.client.command('openNativeDiff', { repoRoot, path, staged: 'false' }),
       },
       {
-        label: '在编辑器中打开',
+        label: t('common.openEditor'),
         action: () => this.client.command('openFile', { repoRoot, path }),
       },
       {
-        label: '暂存 (Stage)',
+        label: t('commit.menu.stage'),
         action: () => void this.client.send('status:stage', { repoRoot, paths: [path] }),
       },
       {
-        label: '取消暂存 (Unstage)',
+        label: t('commit.menu.unstage'),
         action: () => void this.client.send('status:unstage', { repoRoot, paths: [path] }),
       },
       {
-        label: '放弃修改 (Revert)',
+        label: t('commit.menu.revert'),
         action: async () => {
-          const ok = await this.confirm(`确定放弃 ${path} 的修改？此操作不可恢复。`);
+          const ok = await this.confirm(t('commit.confirmRevertFile', path));
           if (ok) await this.client.send('status:discard', { repoRoot, paths: [path] });
         },
       },
-      { label: '添加到忽略列表', children: ignoreSub },
+      { label: t('commit.menu.ignore'), children: ignoreSub },
     ];
     this.openMenu(items, x, y);
   }
@@ -675,7 +681,7 @@ export class CommitSidebarPanel {
     const repoRoot = this.repoRoot;
     const scopeSub = (target: 'gitignore' | 'exclude'): MenuItem[] => [
       {
-        label: '整个目录',
+        label: t('commit.ignore.dir'),
         action: () =>
           void this.client.send('status:ignore', {
             repoRoot,
@@ -685,7 +691,7 @@ export class CommitSidebarPanel {
           }),
       },
       {
-        label: '遍历目录下文件',
+        label: t('commit.ignore.files'),
         action: () =>
           void this.client.send('status:ignore', {
             repoRoot,
@@ -696,32 +702,32 @@ export class CommitSidebarPanel {
       },
     ];
     const ignoreSub = (): MenuItem[] => [
-      { label: '仓库根 .gitignore', children: () => scopeSub('gitignore') },
-      { label: '.git/info/exclude（仅本地）', children: () => scopeSub('exclude') },
+      { label: t('commit.ignore.gitignore'), children: () => scopeSub('gitignore') },
+      { label: t('commit.ignore.exclude'), children: () => scopeSub('exclude') },
     ];
     const items: MenuItem[] = [
       {
-        label: '暂存 (Stage)',
+        label: t('commit.menu.stage'),
         action: () => void this.client.send('status:stage', { repoRoot, paths: [dir] }),
       },
       {
-        label: '取消暂存 (Unstage)',
+        label: t('commit.menu.unstage'),
         action: () => void this.client.send('status:unstage', { repoRoot, paths: [dir] }),
       },
       {
-        label: '放弃修改 (Revert)',
+        label: t('commit.menu.revert'),
         action: async () => {
-          const ok = await this.confirm(`确定放弃 ${dir}/ 下所有文件的修改？此操作不可恢复。`);
+          const ok = await this.confirm(t('commit.confirmRevertDir', dir));
           if (ok) await this.client.send('status:discard', { repoRoot, paths: [dir] });
         },
       },
-      { label: '添加到忽略列表', children: ignoreSub },
+      { label: t('commit.menu.ignore'), children: ignoreSub },
     ];
     this.openMenu(items, x, y);
   }
 
   /**
-   * 渲染右键菜单（点击父项进入子菜单，子菜单首项为"← 返回"）。
+   * 渲染右键菜单（点击父项进入子菜单，子菜单首项为t('commit.back')）。
    * 每次重渲染都重新测量并做边界翻转，子菜单展开后同样贴边可用。
    */
   private openMenu(items: MenuItem[], x: number, y: number): void {
@@ -749,7 +755,7 @@ export class CommitSidebarPanel {
 
     const render = (list: MenuItem[], withBack: boolean): void => {
       const rows: MenuItem[] = withBack
-        ? [{ label: '← 返回', action: () => {
+        ? [{ label: t('commit.back'), action: () => {
             const prev = stack.pop();
             if (prev) render(prev, stack.length > 0);
           } }]
@@ -807,19 +813,19 @@ export class CommitSidebarPanel {
     if (this.busy) return;
     const message = this.msgEl.value.trim();
     if (!message) {
-      this.toast('请先输入提交信息。', true);
+      this.toast(t('commit.needMessage'), true);
       this.msgEl.focus();
       return;
     }
     const stagedCount = this.files.filter((f) => f.index !== 'none').length;
     if (this.selected.size === 0 && stagedCount === 0) {
-      this.toast('没有可提交的内容。', true);
+      this.toast(t('commit.nothingToCommit'), true);
       return;
     }
     this.busy = true;
     this.btnCommit.disabled = true;
     this.btnCommitMode.disabled = true;
-    this.btnCommit.textContent = '提交中…';
+    this.btnCommit.textContent = t('commit.committing');
     try {
       const files = this.selected.size ? [...this.selected] : undefined;
       const result = await this.client.send('commit:create', {
@@ -837,13 +843,14 @@ export class CommitSidebarPanel {
       this.selected.clear();
       this.userTouched.clear();
       this.clearPersistedState();
-      let text = `提交成功：${result.hash.slice(0, 7)}`;
-      if (result.pushed === true) text += `（已推送：${result.pushMessage || '完成'}）`;
-      else if (result.pushed === false) text += `（推送失败：${result.pushMessage || '未知原因'}）`;
+      let text = t('commit.commitOk', result.hash.slice(0, 7));
+      if (result.pushed === true) text += t('commit.pushed', result.pushMessage || t('common.done'));
+      else if (result.pushed === false)
+        text += t('commit.pushFailed', result.pushMessage || t('common.unknown'));
       this.toast(text);
       await this.reload();
     } catch (err) {
-      this.toast(`提交失败：${String(err)}`, true);
+      this.toast(t('commit.commitFailed', String(err)), true);
     } finally {
       this.busy = false;
       this.btnCommit.disabled = false;

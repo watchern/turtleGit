@@ -1,4 +1,5 @@
 import { RpcClient } from '../bridge';
+import { t } from '../i18n';
 import { BlameLine } from '../../shared/protocol';
 
 /**
@@ -17,9 +18,9 @@ export class BlamePanel {
 <div class="toolbar">
   <span class="diff-title">${this.esc(filePath)}</span>
   <span class="flex"></span>
-  <button class="mini" id="btn-refresh">刷新</button>
+  <button class="mini" id="btn-refresh">${t('common.refresh')}</button>
 </div>
-<div class="blame-view" id="blame-view"><div class="diff-empty">加载中…</div></div>
+<div class="blame-view" id="blame-view"><div class="diff-empty">${t('blame.loading')}</div></div>
 `;
     root.querySelector('#btn-refresh')!.addEventListener('click', () => void this.load());
     void this.load();
@@ -34,14 +35,14 @@ export class BlamePanel {
       this.render();
     } catch (err) {
       const view = document.getElementById('blame-view')!;
-      view.innerHTML = `<div class="diff-empty">无法读取 blame：${this.esc(String(err))}</div>`;
+      view.innerHTML = `<div class="diff-empty">${t('blame.failed', this.esc(String(err)))}</div>`;
     }
   }
 
   private render(): void {
     const view = document.getElementById('blame-view')!;
     if (!this.lines.length) {
-      view.innerHTML = '<div class="diff-empty">文件为空或未被跟踪</div>';
+      view.innerHTML = `<div class="diff-empty">${t('blame.empty')}</div>`;
       return;
     }
     const rows = this.lines

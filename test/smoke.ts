@@ -12,6 +12,10 @@ import { computeLanes, buildEdges, laneColor, badgeWidth } from '../webview/grap
 import { buildFileTree, collectDirs, collectFiles } from '../webview/ui/fileTree';
 import { parseBranchName, parseRemotes } from '../src/host/git/BranchOps';
 import { CommitInfo, FileStatus } from '../shared/protocol';
+import { detectLocale, localeFromEnv, normalizeLocale } from '../src/host/i18n/locales';
+import { MESSAGES } from '../src/host/i18n/messages';
+import { toTraditional } from '../src/host/i18n/s2t';
+import { setStrings } from '../webview/i18n';
 
 /**
  * 测试里直接 spawnSync 调 git 的超时（毫秒）。
@@ -35,6 +39,15 @@ async function main(): Promise<void> {
   const fs = await import('fs');
   const path = await import('path');
   const cp = await import('child_process');
+
+  // webview 侧 i18n：测试环境没有真实宿主通过 WebviewInit 注入 strings，
+  // 手动灌入简体字典，使 webview 的 t() 走翻译而非回退到 key 本身
+  // （与产品默认 zh-CN 一致，也让 branchChips / DiffRenderer 的文案断言成立）。
+  {
+    const zh: Record<string, string> = {};
+    for (const k of Object.keys(MESSAGES)) zh[k] = MESSAGES[k].zh;
+    setStrings(zh);
+  }
 
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'turtlegit-smoke-'));
   /**
@@ -1184,7 +1197,15 @@ async function main(): Promise<void> {
     } catch (err) {
       emptyErr = err;
     }
-    check('fetchRemote 空远程名抛错', emptyErr instanceof Error && /未指定远程仓库名称/.test(emptyErr.message), emptyErr);
+    // 错误文案已国际化：断言它等于字典里 ops.noRemoteName 的译文（中英皆可，
+    // 取决于当前语言；测试进程默认英文）
+    const noRemoteName = MESSAGES['ops.noRemoteName'];
+    check(
+      'fetchRemote 空远程名抛错',
+      emptyErr instanceof Error &&
+        (emptyErr.message === noRemoteName.en || emptyErr.message === noRemoteName.zh),
+      emptyErr,
+    );
 
     let missErr: unknown;
     try {
@@ -1476,7 +1497,9 @@ async function main(): Promise<void> {
       'ui:openCompare 已注册 RPC',
       /router\.register\('ui:openCompare'[\s\S]{0,160}openCompare\(repoRoot, base, target\)/.test(pm),
     );
-    check('compare 视图有中文标题', /compare:\s*'分支对比/.test(pm));
+    // 面板标题已国际化：viewTitle() 统一按 title.<view> 取字典，字典里确有中文标题
+    check('面板标题统一走 i18n（viewTitle）', /i18n\.t\(`title\.\$\{view\}`\)/.test(pm));
+    check('compare 视图有中文标题', MESSAGES['title.compare'].zh.includes('分支对比'));
 
     // ---- 对比面板 ----
     check('对比面板用 diff:files 取变更文件', /send\('diff:files'[\s\S]{0,120}range: this\.range/.test(cmp));
@@ -1514,6 +1537,50 @@ async function main(): Promise<void> {
     check('目录节点带子节点', srcDir.kind === 'dir' && (srcDir.children ?? []).length === 2);
     check('递归收集文件', collectFiles(srcDir).length === 2);
     check('递归收集目录路径', collectDirs(tree).join('|') === 'src|src/deep', collectDirs(tree));
+  }
+
+  console.log('== i18n 国际化 ==');
+  {
+    // ---- 语言检测：zh-hans / zh-hant 等写法统一收敛到内部规范值 ----
+    check('zh-hans → 简体中文', normalizeLocale('zh-hans') === 'zh-CN');
+    check('zh-Hans-CN → 简体中文', normalizeLocale('zh-Hans-CN') === 'zh-CN');
+    check('zh-cn（VSCode 自身的语言 ID）→ 简体中文', normalizeLocale('zh-cn') === 'zh-CN');
+    check('zh-hant → 繁体中文', normalizeLocale('zh-hant') === 'zh-TW');
+    check('zh-Hant-TW → 繁体中文', normalizeLocale('zh-Hant-TW') === 'zh-TW');
+    check('zh-tw（VSCode 自身的语言 ID）→ 繁体中文', normalizeLocale('zh-tw') === 'zh-TW');
+    check('en-US → 英文', normalizeLocale('en-US') === 'en');
+    check('无法识别的语种返回 undefined', normalizeLocale('de-DE') === undefined);
+    check('localeFromEnv：非中文语种回落英文', localeFromEnv('de') === 'en' && localeFromEnv(undefined) === 'en');
+    check('设置项写 zh-hans 按简体生效（不再当非法值回落 auto）', detectLocale('zh-hans', 'en') === 'zh-CN');
+    check('设置项写 zh-hant 按繁体生效', detectLocale('zh-hant', 'en') === 'zh-TW');
+    check('设置项 auto 跟随 VSCode 显示语言', detectLocale('auto', 'zh-tw') === 'zh-TW');
+    check('设置项非法值按 auto 处理', detectLocale('xx-YY', 'zh-cn') === 'zh-CN');
+    check('设置项留空按 auto 处理', detectLocale(undefined, 'zh-hans') === 'zh-CN');
+
+    // ---- 字典完整性：重复 key / 缺 en / 缺 zh / 占位符数量 ----
+    const keys = Object.keys(MESSAGES);
+    check('字典非空', keys.length > 0, keys.length);
+    const dupKeys = keys.filter((k, i) => keys.indexOf(k) !== i);
+    check('字典无重复 key', dupKeys.length === 0, dupKeys);
+    const missingEn = keys.filter((k) => !MESSAGES[k]?.en);
+    const missingZh = keys.filter((k) => !MESSAGES[k]?.zh);
+    check('每条都有英文', missingEn.length === 0, missingEn);
+    check('每条都有简体中文', missingZh.length === 0, missingZh);
+    const ph = (s: string): string => (s.match(/\{\d+\}/g) ?? []).join(',');
+    const badPlaceholder = keys.filter((k) => ph(MESSAGES[k].en) !== ph(MESSAGES[k].zh));
+    check('中英占位符数量一致', badPlaceholder.length === 0, badPlaceholder);
+    // 占位符编号必须从 0 连续递增（漏号会让 {1} 拿到 undefined）
+    const badIndex = keys.filter((k) => {
+      const nums = [...MESSAGES[k].zh.matchAll(/\{(\d+)\}/g)].map((m) => Number(m[1]));
+      return nums.some((n, i) => n !== i);
+    });
+    check('占位符编号从 0 连续递增', badIndex.length === 0, badIndex);
+
+    // ---- 简→繁运行时转换（繁体不单独维护译文） ----
+    check('简→繁：选择 → 選擇', toTraditional('选择') === '選擇');
+    check('简→繁：词组特例「复制」→ 複製', toTraditional('复制') === '複製');
+    check('简→繁：英文/ASCII 不受影响', toTraditional('HEAD') === 'HEAD');
+    check('简→繁：空串安全', toTraditional('') === '');
   }
 
   if (failures > 0) {

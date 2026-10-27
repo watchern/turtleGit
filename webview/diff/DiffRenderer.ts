@@ -1,6 +1,7 @@
 /** Unified patch 解析与并排/统一渲染（复刻 TortoiseGitMerge 的基础版） */
 
 import { escapeHtml, highlightLine, languageForPath, HIGHLIGHT_MAX_LINES } from './highlight';
+import { t } from '../i18n';
 
 export interface DiffRow {
   kind: 'context' | 'add' | 'del' | 'header' | 'meta' | 'gap';
@@ -261,7 +262,7 @@ function waveSvg(): string {
 
 function gapRowHtml(r: DiffRow, colSpan: number): string {
   const count = (r.oldEnd ?? 0) - (r.oldStart ?? 1) + 1;
-  return `<tr class="d-gap" data-old-start="${r.oldStart}" data-old-end="${r.oldEnd}" data-new-start="${r.newStart}" data-new-end="${r.newEnd}"><td colspan="${colSpan}"><span class="d-gap-inner">${waveSvg()}<button class="d-gap-btn" type="button">展开 ${count} 行</button>${waveSvg()}</span></td></tr>`;
+  return `<tr class="d-gap" data-old-start="${r.oldStart}" data-old-end="${r.oldEnd}" data-new-start="${r.newStart}" data-new-end="${r.newEnd}"><td colspan="${colSpan}"><span class="d-gap-inner">${waveSvg()}<button class="d-gap-btn" type="button">${t('diff.expandLines', count)}</button>${waveSvg()}</span></td></tr>`;
 }
 
 /**
@@ -322,7 +323,7 @@ function renderUnified(rows: DiffRow[], lang?: string): string {
  */
 export function renderDiff(patch: string, mode: 'side' | 'unified', tail?: DiffTail, path?: string): string {
   if (!patch || !patch.trim()) {
-    return '<div class="diff-empty">无差异</div>';
+    return `<div class="diff-empty">${t('diff.noChanges')}</div>`;
   }
   const lang = diffLanguage(path, patch);
   return mode === 'side'

@@ -8,6 +8,7 @@ import { nodeToTargets } from './host/ui/statusNodes';
 import { PanelManager } from './host/ui/PanelManager';
 import { SidebarViewProvider } from './host/ui/SidebarViewProvider';
 import { absPathIn, relPathIn } from './host/core/paths';
+import * as i18n from './host/i18n';
 
 let store: RepositoryStore | undefined;
 let panels: PanelManager | undefined;
@@ -28,6 +29,8 @@ export function activate(context: vscode.ExtensionContext): void {
   store.attachBuiltinGit();
 
   panels = new PanelManager(context, git, runner, store);
+  // 按「设置 turtlegit.language → VSCode 显示语言 → 英文」确定界面语言
+  i18n.refreshLocale();
   // 合并后的侧边栏（提交 / 分支 / 暂存 三标签合一，复刻 TortoiseGit 单面板习惯）
   sidebarView = new SidebarViewProvider(context, panels, store);
   context.subscriptions.push(
@@ -100,7 +103,7 @@ export function activate(context: vscode.ExtensionContext): void {
     async (...args: unknown[]): Promise<void> => {
       const targets = await resolveTargets(...args);
       if (!targets.length) {
-        vscode.window.showWarningMessage('TurtleGit: 未选中文件。');
+        vscode.window.showWarningMessage(i18n.t('host.noSelection'));
         return;
       }
       const byRepo = new Map<string, string[]>();
@@ -111,7 +114,7 @@ export function activate(context: vscode.ExtensionContext): void {
         try {
           await fn(repoRoot, paths);
         } catch (err) {
-          vscode.window.showErrorMessage(`TurtleGit 操作失败：${errText(err)}`);
+          vscode.window.showErrorMessage(i18n.t('host.opFailed', errText(err)));
         }
       }
     };
@@ -141,7 +144,7 @@ export function activate(context: vscode.ExtensionContext): void {
         const targets = await resolveTargets(...args);
         const first = targets[0];
         if (!first) {
-          vscode.window.showWarningMessage('TurtleGit: 请先选择文件。');
+          vscode.window.showWarningMessage(i18n.t('host.selectFileFirst'));
           return;
         }
         await panels!.diffNative(absPathIn(first.repoRoot, first.path));
@@ -153,7 +156,7 @@ export function activate(context: vscode.ExtensionContext): void {
         const targets = await resolveTargets(...args);
         const first = targets[0];
         if (!first) {
-          vscode.window.showWarningMessage('TurtleGit: 请先选择文件。');
+          vscode.window.showWarningMessage(i18n.t('host.selectFileFirst'));
           return;
         }
         await panels!.openDiff(absPathIn(first.repoRoot, first.path));
@@ -164,7 +167,7 @@ export function activate(context: vscode.ExtensionContext): void {
       async (...args: unknown[]): Promise<void> => {
         const targets = await resolveTargets(...args);
         if (!targets.length) {
-          vscode.window.showWarningMessage('TurtleGit: 请先选择文件。');
+          vscode.window.showWarningMessage(i18n.t('host.selectFileFirst'));
           return;
         }
         for (const t of targets) {
@@ -180,16 +183,17 @@ export function activate(context: vscode.ExtensionContext): void {
       async (...args: unknown[]): Promise<void> => {
         const targets = await resolveTargets(...args);
         if (!targets.length) {
-          vscode.window.showWarningMessage('TurtleGit: 未选中文件。');
+          vscode.window.showWarningMessage(i18n.t('host.noSelection'));
           return;
         }
         const names = targets.map((t) => t.path).join('、');
+        const confirmLabel = i18n.t('common.confirm');
         const answer = await vscode.window.showWarningMessage(
-          `确定放弃这些文件的修改？此操作不可恢复：${names}`,
+          i18n.t('host.discardConfirm', names),
           { modal: true },
-          '确定',
+          confirmLabel,
         );
-        if (answer !== '确定') return;
+        if (answer !== confirmLabel) return;
         const byRepo = new Map<string, string[]>();
         for (const t of targets) {
           byRepo.set(t.repoRoot, [...(byRepo.get(t.repoRoot) ?? []), t.path]);
@@ -198,7 +202,7 @@ export function activate(context: vscode.ExtensionContext): void {
           try {
             await panels!.discardPaths(repoRoot, paths);
           } catch (err) {
-            vscode.window.showErrorMessage(`TurtleGit 操作失败：${errText(err)}`);
+            vscode.window.showErrorMessage(i18n.t('host.opFailed', errText(err)));
           }
         }
       },
@@ -211,27 +215,27 @@ export function activate(context: vscode.ExtensionContext): void {
     ['turtlegit.pull', async () => {
       const root = await resolveRepoRoot();
       if (!root) {
-        vscode.window.showWarningMessage('TurtleGit: 未找到 git 仓库。');
+        vscode.window.showWarningMessage(i18n.t('host.noRepo'));
         return;
       }
       try {
         const summary = await panels!.pull(root);
-        vscode.window.showInformationMessage(`TurtleGit 拉取完成：${summary}`);
+        vscode.window.showInformationMessage(i18n.t('host.pullDone', summary));
       } catch (err) {
-        vscode.window.showErrorMessage(`TurtleGit 拉取失败：${errText(err)}`);
+        vscode.window.showErrorMessage(i18n.t('host.pullFailed', errText(err)));
       }
     }],
     ['turtlegit.push', async () => {
       const root = await resolveRepoRoot();
       if (!root) {
-        vscode.window.showWarningMessage('TurtleGit: 未找到 git 仓库。');
+        vscode.window.showWarningMessage(i18n.t('host.noRepo'));
         return;
       }
       try {
         const summary = await panels!.push(root);
-        vscode.window.showInformationMessage(`TurtleGit 推送完成：${summary}`);
+        vscode.window.showInformationMessage(i18n.t('host.pushDone', summary));
       } catch (err) {
-        vscode.window.showErrorMessage(`TurtleGit 推送失败：${errText(err)}`);
+        vscode.window.showErrorMessage(i18n.t('host.pushFailed', errText(err)));
       }
     }],
   ];
@@ -265,13 +269,15 @@ export function activate(context: vscode.ExtensionContext): void {
   context.subscriptions.push(
     vscode.workspace.onDidChangeConfiguration((e) => {
       if (e.affectsConfiguration('turtlegit.showStatusDecorations')) {
-        vscode.window.showInformationMessage(
-          'TurtleGit: 装饰器开关变更后请重载窗口生效。',
-        );
+        vscode.window.showInformationMessage(i18n.t('host.reloadDecorations'));
       }
       // 忽略文件排除名单变更：立即刷新，无需重载
       if (e.affectsConfiguration('turtlegit.ignoredExcludeDirs')) {
         void store!.refreshAll({ silent: true });
+      }
+      // 界面语言变更：刷新语言并向已打开面板重推 init，使其用新字典重挂载
+      if (e.affectsConfiguration('turtlegit.language')) {
+        panels?.onLocaleChanged();
       }
     }),
   );

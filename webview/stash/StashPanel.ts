@@ -1,4 +1,5 @@
 import { RpcClient } from '../bridge';
+import { t } from '../i18n';
 import { renderDiff, patchStat } from '../diff/DiffRenderer';
 import { bindDiffInteractions, loadPatchAndCounts } from '../diff/expander';
 import { toast, promptValue, escapeHtml } from '../ui/dialogs';
@@ -46,29 +47,29 @@ export class StashPanel {
       ? ''
       : `
   <section class="pane left">
-    <div class="pane-head"><span>Stash 列表</span><span class="count" id="stash-count"></span></div>
+    <div class="pane-head"><span>${t('stash.list')}</span><span class="count" id="stash-count"></span></div>
     <div class="commit-list" id="stash-list"></div>
   </section>`;
     this.el.innerHTML = `
 <div class="toolbar">
-  <button class="primary" id="btn-push">保存 Stash…</button>
-  <button id="btn-refresh">刷新</button>
+  <button class="primary" id="btn-push">${t('stash.save')}</button>
+  <button id="btn-refresh">${t('common.refresh')}</button>
   <span class="sep"></span>
-  <button id="btn-apply" disabled>应用 (Apply)</button>
-  <button id="btn-pop" disabled>恢复 (Pop)</button>
-  <button id="btn-drop" disabled>删除 (Drop)</button>
+  <button id="btn-apply" disabled>${t('stash.apply')}</button>
+  <button id="btn-pop" disabled>${t('stash.pop')}</button>
+  <button id="btn-drop" disabled>${t('stash.drop')}</button>
   <span class="flex"></span>
   <span class="repo-name"></span>
 </div>
 <div class="split stash-split${this.hideList ? ' no-list' : ''}">
 ${listPane}
   <section class="pane mid">
-    <div class="pane-head"><span>变更文件</span><span class="count" id="file-count"></span></div>
+    <div class="pane-head"><span>${t('common.files')}</span><span class="count" id="file-count"></span></div>
     <div class="file-list" id="stash-files"></div>
   </section>
   <section class="pane right">
-    <div class="pane-head"><span id="diff-title">差异（stash 与其基线）</span><span class="diff-stat" id="diff-stat"></span><span class="flex"></span><button class="mini" id="btn-open-editor" title="在 VSCode 原生 diff 编辑器中打开（stash 版本 ↔ 基线）" disabled>在编辑器中打开</button></div>
-    <div class="diff-view full" id="diff-view"><div class="diff-empty">选择 stash 查看差异</div></div>
+    <div class="pane-head"><span id="diff-title">${t('stash.diffTitle')}</span><span class="diff-stat" id="diff-stat"></span><span class="flex"></span><button class="mini" id="btn-open-editor" title="${t('stash.openEditorTip')}" disabled>${t('common.openEditor')}</button></div>
+    <div class="diff-view full" id="diff-view"><div class="diff-empty">${t('stash.selectHint')}</div></div>
   </section>
 </div>
 `;
@@ -112,7 +113,7 @@ ${listPane}
     try {
       this.stashes = await this.client.send('stash:list', { repoRoot: this.repoRoot });
     } catch (err) {
-      if (this.listEl) this.listEl.innerHTML = `<div class="empty">读取失败：${this.esc(String(err))}</div>`;
+      if (this.listEl) this.listEl.innerHTML = `<div class="empty">${t('common.readFailed', this.esc(String(err)))}</div>`;
       else this.showEmptyDiff();
       return;
     }
@@ -151,7 +152,7 @@ ${listPane}
     if (!this.listEl) return; // 无列表模式（侧边栏带入 ref）
     this.must('stash-count').textContent = `（${this.stashes.length}）`;
     if (!this.stashes.length) {
-      this.listEl.innerHTML = '<div class="empty">没有 stash</div>';
+      this.listEl.innerHTML = `<div class="empty">${t('stash.noStash')}</div>`;
       this.files = [];
       this.currentFile = undefined;
       this.renderFiles();
@@ -176,12 +177,12 @@ ${listPane}
   /** 选中 stash：加载其变更文件列表，并默认展示第一个文件的差异 */
   private async selectStash(ref: string): Promise<void> {
     this.currentFile = undefined;
-    this.diffTitleEl.textContent = `${ref} 的变更`;
+    this.diffTitleEl.textContent = t('stash.ofRef', ref);
     try {
       this.files = await this.client.send('log:files', { repoRoot: this.repoRoot, hash: ref });
     } catch (err) {
       this.files = [];
-      toast(`读取 stash 文件失败：${String(err)}`, true);
+      toast(t('stash.readFilesFailed', String(err)), true);
     }
     this.renderFiles();
     if (this.files.length) {
@@ -205,13 +206,13 @@ ${listPane}
     this.updateActions();
     this.must('file-count').textContent = `（${this.files.length}）`;
     if (!this.files.length) {
-      this.filesEl.innerHTML = '<div class="empty">没有文件变更</div>';
+      this.filesEl.innerHTML = `<div class="empty">${t('stash.noFileChanges')}</div>`;
       return;
     }
-    const badge: Record<string, string> = { A: '新增', M: '修改', D: '删除', R: '重命名', C: '复制', T: '类型', U: '冲突' };
+    const badge: Record<string, string> = { A: t('status.added'), M: t('status.modified'), D: t('status.deleted'), R: t('branches.renameOp'), C: t('status.copied'), T: t('status.type'), U: t('status.conflict') };
     this.filesEl.innerHTML = this.files
       .map((f) => {
-        const stat = f.isBinary ? '二进制' : `+${f.additions} -${f.deletions}`;
+        const stat = f.isBinary ? t('common.binary') : `+${f.additions} -${f.deletions}`;
         return `<div class="file-row${this.currentFile?.path === f.path ? ' active' : ''}" data-path="${this.escAttr(f.path)}" title="${this.escAttr(f.path)}">
   <span class="badge st-${f.status === 'A' ? 'staged' : f.status === 'D' ? 'untracked' : 'modified'}" title="${this.escAttr(badge[f.status] ?? f.status)}">${f.status}</span>
   <span class="file-name">${this.esc(f.path)}</span>
@@ -230,10 +231,10 @@ ${listPane}
 
   private showEmptyDiff(): void {
     this.diffEl.innerHTML = this.hideList
-      ? '<div class="diff-empty">该 stash 已被删除或弹出；请在侧边栏「暂存」标签选择其他 stash</div>'
-      : '<div class="diff-empty">选择 stash 查看差异</div>';
+      ? `<div class="diff-empty">${t('stash.gone')}</div>`
+      : `<div class="diff-empty">${t('stash.selectHint')}</div>`;
     this.statEl.textContent = '';
-    this.diffTitleEl.textContent = '差异（stash 与其基线）';
+    this.diffTitleEl.textContent = t('stash.diffTitle');
   }
 
   /** 单个文件的 stash 差异：diff:patch 的 path + range 组合 */
@@ -261,33 +262,33 @@ ${listPane}
       const stat = patchStat(patch);
       this.statEl.textContent = stat.additions || stat.deletions ? `+${stat.additions} -${stat.deletions}` : '';
     } catch (err) {
-      this.diffEl.innerHTML = `<div class="diff-empty">无法读取差异：${this.esc(String(err))}</div>`;
+      this.diffEl.innerHTML = `<div class="diff-empty">${t('common.diffFailed', this.esc(String(err)))}</div>`;
       this.statEl.textContent = '';
     }
   }
 
   private async push(): Promise<void> {
-    const message = await promptValue('Stash 消息（可留空）：', '');
+    const message = await promptValue(t('stash.prompt'), '');
     try {
       await this.client.send('stash:push', {
         repoRoot: this.repoRoot,
         message: message?.trim() || undefined,
       });
-      toast('已保存 stash');
+      toast(t('stash.saved'));
       await this.reload();
     } catch (err) {
-      toast(`保存失败：${String(err)}`, true);
+      toast(t('stash.saveFailed', String(err)), true);
     }
   }
 
   private async run(op: 'apply' | 'pop' | 'drop'): Promise<void> {
     if (!this.selected) return;
-    if (op === 'drop' && !(await this.client.send('ui:confirm', { text: `确定删除 ${this.selected.ref}？` }))) {
+    if (op === 'drop' && !(await this.client.send('ui:confirm', { text: t('stash.confirmDelete', this.selected.ref) }))) {
       return;
     }
     try {
       await this.client.send(`stash:${op}` as never, { repoRoot: this.repoRoot, index: this.selected.index } as never);
-      toast(`已${op === 'apply' ? '应用' : op === 'pop' ? '恢复' : '删除'} ${this.selected.ref}`);
+      toast(t(op === 'apply' ? 'stash.applied' : op === 'pop' ? 'stash.popped' : 'stash.dropped', this.selected.ref));
       this.selected = undefined;
       this.files = [];
       this.currentFile = undefined;
@@ -295,7 +296,7 @@ ${listPane}
       this.showEmptyDiff();
       await this.reload();
     } catch (err) {
-      toast(`操作失败：${String(err)}`, true);
+      toast(t('common.opFailed', String(err)), true);
     }
   }
 

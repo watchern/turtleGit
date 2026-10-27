@@ -1,4 +1,5 @@
 import * as path from 'path';
+import * as i18n from '../i18n';
 import * as fs from 'fs';
 import { GitRunner, GitRunnerError } from './GitRunner';
 import { parseStatus, parseLog, parseCommitFiles, logFormat, parseSignOffIdentity, sinceArg } from './parsers';
@@ -402,7 +403,7 @@ export class GitService {
           .split(/\r?\n/)
           .filter((l) => l.trim() && !/^warning:/i.test(l.trim()))
           .join('\n')
-          .trim() || '提交失败';
+          .trim() || i18n.t('git.commitFailed');
       throw new GitRunnerError(message, r);
     }
     const head = await this.runner.out(['rev-parse', 'HEAD'], {

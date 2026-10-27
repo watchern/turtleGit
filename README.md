@@ -4,7 +4,7 @@
 
 **为什么做这个**：TortoiseGit 只支持 Windows，Linux 上没有等价产品。TurtleGit 用纯 VSCode 插件实现同一套交互习惯，**不调用 TortoiseGit、不依赖任何外部 GUI 进程**，Linux / macOS / Windows 通用。
 
-> 状态：核心闭环已实现，数据层冒烟测试 **349** 项断言全通过。尚未在真实 VSCode 中端到端联调（见「已知限制」）。
+> 状态：核心闭环已实现，数据层冒烟测试 **374** 项断言全通过。尚未在真实 VSCode 中端到端联调（见「已知限制」）。
 
 ## 快速开始
 
@@ -100,6 +100,18 @@ pnpm test           # 数据层冒烟测试（临时仓库，跨平台断言）
 | `turtlegit.autoRefresh` | `true` | 保存文件后自动刷新状态 |
 | `turtlegit.showStatusDecorations` | `true` | 资源管理器状态角标 |
 | `turtlegit.ignoredExcludeDirs` | `[".history", "node_modules"]` | 勾选「忽略文件」时排除不显示的文件夹 |
+| `turtlegit.language` | `auto` | 界面语言：`auto`（跟随 VSCode 显示语言）/ `zh-hans`（简体中文）/ `zh-hant`（繁体中文）/ `en`（英文） |
+
+## 国际化
+
+所有界面文案走统一的 `t(key)` 字典，宿主与 webview 共用同一份词条（zh / en 双语，繁体由简体经 `s2t` 运行时转换）。
+
+- **简体** `zh-hans` / `zh-cn` / `zh` / `zh-sg` → 简体中文
+- **繁体** `zh-hant` / `zh-tw` / `zh-hk` / `zh-mo` → 繁体中文
+- **英文** `en` / 其他 → 英文
+- 设置 `turtlegit.language` 优先于 VSCode 自身显示语言；设为 `auto` 时回落到 VSCode 语言，无法识别则回落英文
+
+已知限制：内置 s2t 为高频词表转换，生僻词或专业术语可能未转繁。
 
 ## 兼容性
 

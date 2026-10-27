@@ -1,4 +1,5 @@
 import { CommitInfo } from '../../shared/protocol';
+import { t } from '../i18n';
 
 /**
  * gitk 风格的 lane 分配算法。
@@ -285,18 +286,19 @@ export function branchChips(
     chips.push({
       text: headText || 'HEAD',
       kind: 'head',
-      title: detached ? '分离头指针 (HEAD)' : `当前分支: ${headText}`,
+      title: detached ? t('graph.lane.detached') : t('graph.lane.current', headText),
     });
   }
   for (const b of branches.slice(0, maxBranches)) {
     chips.push({
       text: b.text,
       kind: b.kind,
-      title: b.kind === 'remote' ? `远程分支: ${b.text}` : `本地分支: ${b.text}`,
+      title: b.kind === 'remote' ? t('graph.lane.remote', b.text) : t('graph.lane.local', b.text),
     });
   }
-  for (const t of tags) {
-    chips.push({ text: t.text, kind: 'tag', title: `标签: ${t.text}` });
+  // 循环变量不能叫 t——会遮蔽导入的 t() 翻译函数
+  for (const tag of tags) {
+    chips.push({ text: tag.text, kind: 'tag', title: t('graph.lane.tag', tag.text) });
   }
   const collapsed = branches.slice(maxBranches).map((b) => b.text);
   return { chips, collapsed };

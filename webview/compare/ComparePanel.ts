@@ -1,4 +1,5 @@
 import { RpcClient } from '../bridge';
+import { t } from '../i18n';
 import { renderDiff, patchStat } from '../diff/DiffRenderer';
 import { bindDiffInteractions, loadPatchAndCounts } from '../diff/expander';
 import { escapeHtml } from '../ui/dialogs';
@@ -18,13 +19,13 @@ interface CompareLayout {
 
 /** CommitFile.status → 徽标文案 / 配色（沿用 Stash 面板的语义） */
 const STATUS_CN: Record<string, string> = {
-  A: '新增',
-  M: '修改',
-  D: '删除',
-  R: '重命名',
-  C: '复制',
-  T: '类型',
-  U: '冲突',
+  A: t('status.added'),
+  M: t('status.modified'),
+  D: t('status.deleted'),
+  R: t('branches.renameOp'),
+  C: t('status.copied'),
+  T: t('status.type'),
+  U: t('status.conflict'),
 };
 
 function statusCls(s: string): string {
@@ -92,36 +93,36 @@ export class ComparePanel {
   private build(): void {
     this.el.innerHTML = `
 <div class="toolbar">
-  <span class="cmp-refs" title="对比方向：左=基线，右=目标">
+  <span class="cmp-refs" title="${t('compare.refsTip')}">
     <span class="cmp-ref base" id="cmp-base"></span>
-    <span class="cmp-arrow" title="→ 的改动">→</span>
+    <span class="cmp-arrow" title="${t('compare.arrowTip')}">→</span>
     <span class="cmp-ref target" id="cmp-target"></span>
   </span>
-  <button id="cmp-swap" title="交换对比方向（左右互换）">交换</button>
-  <button id="cmp-refresh" title="刷新 (F5)">刷新</button>
+  <button id="cmp-swap" title="${t('compare.swapTip')}">${t('compare.swap')}</button>
+  <button id="cmp-refresh" title="${t('common.refreshTip')}">${t('common.refresh')}</button>
   <span class="sep"></span>
-  <button id="cmp-mode" title="切换并排 / 统一视图"></button>
+  <button id="cmp-mode" title="${t('compare.modeTip')}"></button>
   <span class="flex"></span>
   <span class="repo-name" id="cmp-repo"></span>
 </div>
 <div class="split cmp-split" id="cmp-split">
   <section class="pane left" id="cmp-pane" style="width:${this.paneW}px">
     <div class="pane-head">
-      <span>变更文件</span><span class="count" id="cmp-count"></span>
+      <span>${t('common.files')}</span><span class="count" id="cmp-count"></span>
       <span class="flex"></span>
-      <button class="mini" id="cmp-collapse" title="全部折叠">－</button>
-      <button class="mini" id="cmp-expand" title="全部展开">＋</button>
+      <button class="mini" id="cmp-collapse" title="${t('compare.collapseAll')}">－</button>
+      <button class="mini" id="cmp-expand" title="${t('compare.expandAll')}">＋</button>
     </div>
-    <div class="file-list" id="cmp-tree"><div class="empty">载入中…</div></div>
+    <div class="file-list" id="cmp-tree"><div class="empty">${t('common.loading')}</div></div>
   </section>
-  <div class="split-handle" id="cmp-handle" title="拖拽调整左栏宽度"></div>
+  <div class="split-handle" id="cmp-handle" title="${t('compare.splitTip')}"></div>
   <section class="pane right">
     <div class="pane-head">
-      <span id="cmp-title">差异</span><span class="diff-stat" id="cmp-stat"></span>
+      <span id="cmp-title">${t('common.diff')}</span><span class="diff-stat" id="cmp-stat"></span>
       <span class="flex"></span>
-      <button class="mini" id="cmp-open-editor" title="在 VSCode 原生 diff 编辑器中打开（左=基线，右=目标）" disabled>在编辑器中打开</button>
+      <button class="mini" id="cmp-open-editor" title="${t('compare.openEditorTip')}" disabled>${t('common.openEditor')}</button>
     </div>
-    <div class="diff-view full" id="cmp-diff"><div class="diff-empty">选择文件查看差异</div></div>
+    <div class="diff-view full" id="cmp-diff"><div class="diff-empty">${t('common.selectFileDiff')}</div></div>
   </section>
 </div>
 `;
@@ -181,7 +182,7 @@ export class ComparePanel {
   }
 
   private syncModeButton(): void {
-    this.must('cmp-mode').textContent = this.mode === 'side' ? '统一视图' : '并排视图';
+    this.must('cmp-mode').textContent = this.mode === 'side' ? t('compare.btnSide') : t('compare.btnUnified');
     this.must('cmp-base').textContent = this.base;
     this.must('cmp-target').textContent = this.target;
   }
@@ -234,7 +235,7 @@ export class ComparePanel {
       this.files = await this.client.send('diff:files', { repoRoot: this.repoRoot, range: this.range });
     } catch (err) {
       this.files = [];
-      this.treeEl.innerHTML = `<div class="empty">读取失败：${esc(String(err))}</div>`;
+      this.treeEl.innerHTML = `<div class="empty">${t('common.readFailed', esc(String(err)))}</div>`;
       this.countEl.textContent = '';
       this.showEmptyDiff();
       return;
@@ -262,7 +263,7 @@ export class ComparePanel {
   private renderTree(): void {
     this.countEl.textContent = `（${this.files.length}）`;
     if (!this.files.length) {
-      this.treeEl.innerHTML = '<div class="empty">两个引用之间没有差异</div>';
+      this.treeEl.innerHTML = `<div class="empty">${t('compare.noDiff')}</div>`;
       return;
     }
     this.treeEl.innerHTML = this.renderNodes(buildFileTree(this.files), 0);
@@ -277,7 +278,7 @@ export class ComparePanel {
           const childFiles = collectFiles(n);
           const changed = childFiles.length;
           const indent = depth * 10;
-          const twisty = `<span class="dir-twisty${collapsed ? '' : ' open'}" title="展开/折叠"><svg width="12" height="12" viewBox="0 0 12 12" aria-hidden="true"><path d="M4.5 1.5 8.5 6 4.5 10.5" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg></span>`;
+          const twisty = `<span class="dir-twisty${collapsed ? '' : ' open'}" title="${t('common.expandCollapse')}"><svg width="12" height="12" viewBox="0 0 12 12" aria-hidden="true"><path d="M4.5 1.5 8.5 6 4.5 10.5" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg></span>`;
           const row = `<div class="dir-row" data-dir="${escAttr(n.path)}" style="padding-left:${indent}px" title="${escAttr(n.path)}">
   ${twisty}
   <span class="dir-name">${esc(n.label)}</span>
@@ -287,7 +288,7 @@ export class ComparePanel {
         }
         const f = n.file!;
         const indent = depth * 10 + 12;
-        const stat = f.isBinary ? '二进制' : `<span class="add">+${f.additions}</span> <span class="del">-${f.deletions}</span>`;
+        const stat = f.isBinary ? t('common.binary') : `<span class="add">+${f.additions}</span> <span class="del">-${f.deletions}</span>`;
         const rename = f.oldPath ? `<span class="rename">← ${esc(f.oldPath)}</span>` : '';
         return `<div class="file-row${this.current?.path === f.path ? ' active' : ''}" data-path="${escAttr(f.path)}" style="padding-left:${indent}px" title="${escAttr(f.path)}">
   <span class="badge ${statusCls(f.status)}" title="${escAttr(STATUS_CN[f.status] ?? f.status)}">${f.status}</span>
@@ -323,10 +324,10 @@ export class ComparePanel {
 
   private showEmptyDiff(): void {
     this.diffEl.innerHTML = this.files.length
-      ? '<div class="diff-empty">选择文件查看差异</div>'
-      : '<div class="diff-empty">两个引用之间没有差异</div>';
+      ? `<div class="diff-empty">${t('common.selectFileDiff')}</div>`
+      : `<div class="diff-empty">${t('compare.noDiff')}</div>`;
     this.statEl.textContent = '';
-    this.titleEl.textContent = '差异';
+    this.titleEl.textContent = t('common.diff');
     (this.must('cmp-open-editor') as HTMLButtonElement).disabled = true;
   }
 
@@ -355,7 +356,7 @@ export class ComparePanel {
       const stat = patchStat(patch);
       this.statEl.textContent = stat.additions || stat.deletions ? `+${stat.additions} -${stat.deletions}` : '';
     } catch (err) {
-      this.diffEl.innerHTML = `<div class="diff-empty">无法读取差异：${esc(String(err))}</div>`;
+      this.diffEl.innerHTML = `<div class="diff-empty">${t('common.diffFailed', esc(String(err)))}</div>`;
       this.statEl.textContent = '';
     }
   }

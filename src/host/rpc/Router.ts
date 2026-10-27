@@ -1,4 +1,5 @@
 import type { RpcRequestEnvelope, RpcResponseEnvelope, RpcRequests } from '../../../shared/protocol';
+import * as i18n from '../i18n';
 
 export type RpcHandler<K extends keyof RpcRequests> = (
   payload: RpcRequests[K]['req'],
@@ -21,7 +22,7 @@ export class RpcRouter {
         kind: 'response',
         id: msg.id,
         ok: false,
-        error: `未注册的请求类型: ${msg.type}`,
+        error: i18n.t('rpc.unknownType', msg.type),
       };
     }
     try {

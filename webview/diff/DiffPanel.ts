@@ -1,4 +1,5 @@
 import { RpcClient } from '../bridge';
+import { t } from '../i18n';
 import { renderDiff, patchStat } from './DiffRenderer';
 import { bindDiffInteractions, loadPatchAndCounts } from './expander';
 
@@ -22,11 +23,11 @@ export class DiffPanel {
   <span class="diff-title" id="diff-title">${this.esc(filePath)}</span>
   <span class="diff-stat" id="diff-stat"></span>
   <span class="flex"></span>
-  <label class="chk"><input type="checkbox" id="chk-staged" ${staged ? 'checked' : ''}> 已暂存</label>
-  <button class="mini" id="btn-diff-mode">并排</button>
-  <button class="mini" id="btn-open-editor">在编辑器中打开</button>
+  <label class="chk"><input type="checkbox" id="chk-staged" ${staged ? 'checked' : ''}> ${t('diff.staged')}</label>
+  <button class="mini" id="btn-diff-mode">${t('diff.modeSide')}</button>
+  <button class="mini" id="btn-open-editor">${t('common.openEditor')}</button>
 </div>
-<div class="diff-view full" id="diff-view"><div class="diff-empty">加载中…</div></div>
+<div class="diff-view full" id="diff-view"><div class="diff-empty">${t('diff.loading')}</div></div>
 `;
     const chk = root.querySelector('#chk-staged') as HTMLInputElement;
     chk.addEventListener('change', () => {
@@ -36,7 +37,7 @@ export class DiffPanel {
     root.querySelector('#btn-diff-mode')!.addEventListener('click', () => {
       this.diffMode = this.diffMode === 'side' ? 'unified' : 'side';
       (root.querySelector('#btn-diff-mode') as HTMLElement).textContent =
-        this.diffMode === 'side' ? '并排' : '统一';
+        this.diffMode === 'side' ? t('diff.modeSide') : t('diff.modeUnified');
       void this.load();
     });
     root.querySelector('#btn-open-editor')!.addEventListener('click', () => {
@@ -68,11 +69,11 @@ export class DiffPanel {
       }
       const title = document.getElementById('diff-title');
       if (title) {
-        title.textContent = `${this.filePath}（${this.staged ? '已暂存' : '工作区'} ↔ HEAD）`;
+        title.textContent = t('diff.title', this.filePath, this.staged ? t('status.staged') : t('status.worktree'));
       }
     } catch (err) {
       const view = document.getElementById('diff-view')!;
-      view.innerHTML = `<div class="diff-empty">无法读取差异：${this.esc(String(err))}</div>`;
+      view.innerHTML = `<div class="diff-empty">${t('common.diffFailed', this.esc(String(err)))}</div>`;
     }
   }
 

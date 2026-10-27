@@ -1,4 +1,5 @@
 import { RpcClient } from '../bridge';
+import { t } from '../i18n';
 import { toast, promptValue, promptFields, showMenuAt, escapeHtml } from '../ui/dialogs';
 import { BranchEntry, BranchInfo, RemoteEntry } from '../../shared/protocol';
 
@@ -63,13 +64,13 @@ export class BranchesSidebar {
     this.el.innerHTML = `
 <div class="br-view">
   <div class="br-head">
-    <span class="br-cur" id="br-cur">载入中…</span>
-    <input type="search" id="br-filter" class="filter" placeholder="过滤" title="按名称过滤分支">
-    <button class="mini icon" id="br-pull" title="拉取（Pull）">${ICONS.pull}</button>
-    <button class="mini icon" id="br-push" title="推送（Push）">${ICONS.push}</button>
-    <button class="mini icon" id="br-refresh" title="刷新分支列表">${ICONS.refresh}</button>
+    <span class="br-cur" id="br-cur">${t('common.loading')}</span>
+    <input type="search" id="br-filter" class="filter" placeholder="${t('branches.filterPlaceholder')}" title="${t('branches.filterTip')}">
+    <button class="mini icon" id="br-pull" title="${t('branches.pull')}">${ICONS.pull}</button>
+    <button class="mini icon" id="br-push" title="${t('branches.push')}">${ICONS.push}</button>
+    <button class="mini icon" id="br-refresh" title="${t('branches.refreshTip')}">${ICONS.refresh}</button>
   </div>
-  <div class="br-groups" id="br-groups"><div class="empty">载入中…</div></div>
+  <div class="br-groups" id="br-groups"><div class="empty">${t('common.loading')}</div></div>
 </div>
 <div class="ctx-menu" id="br-menu" hidden></div>
 `;
@@ -96,8 +97,8 @@ export class BranchesSidebar {
 
   private async reload(): Promise<void> {
     if (!this.repoRoot) {
-      this.groupsEl.innerHTML = '<div class="empty">未找到 git 仓库</div>';
-      this.curEl.textContent = '无仓库';
+      this.groupsEl.innerHTML = `<div class="empty">${t('branches.noRepo')}</div>`;
+      this.curEl.textContent = t('branches.noRepoShort');
       return;
     }
     try {
@@ -111,7 +112,7 @@ export class BranchesSidebar {
       this.info = info;
       this.render();
     } catch (err) {
-      this.groupsEl.innerHTML = `<div class="empty">读取失败：${esc(String(err))}</div>`;
+      this.groupsEl.innerHTML = `<div class="empty">${t('branches.readFailed', esc(String(err)))}</div>`;
     }
   }
 
@@ -129,7 +130,7 @@ export class BranchesSidebar {
   private render(): void {
     if (this.info) {
       const cur = this.info.detached
-        ? `分离 HEAD @ ${this.info.name.slice(0, 7)}`
+        ? t('branches.detachedAt', this.info.name.slice(0, 7))
         : this.info.name;
       const ab = this.info.ahead || this.info.behind
         ? ` ↑${this.info.ahead} ↓${this.info.behind}`
@@ -159,36 +160,36 @@ export class BranchesSidebar {
 
     const parts: string[] = [];
     parts.push(
-      this.groupHead('local', `本地分支`, local.length, {
+      this.groupHead('local', t('branches.group.local'), local.length, {
         act: 'new-branch',
-        title: '从当前提交新建分支',
+        title: t('branches.newBranchTitle'),
         icon: ICONS.newBranch,
       }),
-      this.collapsed.local ? '' : `<div class="br-rows">${local.map((b) => this.branchRow(b)).join('') || '<div class="empty">无匹配分支</div>'}</div>`,
+      this.collapsed.local ? '' : `<div class="br-rows">${local.map((b) => this.branchRow(b)).join('') || `<div class="empty">${t('branches.noMatch')}</div>`}</div>`,
     );
     parts.push(
-      this.groupHead('remote', `远程分支`, remote.length),
+      this.groupHead('remote', t('branches.group.remote'), remote.length),
       this.collapsed.remote
         ? ''
         : [...byRemote.entries()]
             .map(([name, list]) => {
               const open = !this.remoteCollapsed.has(name);
               return `<div class="br-sub" data-remote="${escAttr(name)}">
-  <div class="br-subhead" title="远程仓库 ${escAttr(name)}（${list.length} 个远程分支）"><span class="twisty">${open ? '▾' : '▸'}</span><span class="br-rem-ico">${ICONS.remoteIco}</span><span class="br-sub-name">${esc(name)}</span><span class="count">（${list.length}）</span></div>
+  <div class="br-subhead" title="${t('branches.remoteGroupTip', escAttr(name), list.length)}"><span class="twisty">${open ? '▾' : '▸'}</span><span class="br-rem-ico">${ICONS.remoteIco}</span><span class="br-sub-name">${esc(name)}</span><span class="count">（${list.length}）</span></div>
   ${open ? `<div class="br-rows">${list.map((b) => this.branchRow(b)).join('')}</div>` : ''}
 </div>`;
             })
-            .join('') || '<div class="empty">无远程分支</div>',
+            .join('') || `<div class="empty">${t('branches.noRemoteBranch')}</div>`,
     );
     parts.push(
-      this.groupHead('remotes', `远程仓库`, this.remotes.length, {
+      this.groupHead('remotes', t('branches.group.remotes'), this.remotes.length, {
         act: 'add-remote',
-        title: '添加远程仓库',
+        title: t('branches.addRemoteTitle'),
         icon: ICONS.addRemote,
       }),
       this.collapsed.remotes
         ? ''
-        : `<div class="br-rows">${this.remotes.map((r) => this.remoteRow(r)).join('') || '<div class="empty">无远程仓库</div>'}</div>`,
+        : `<div class="br-rows">${this.remotes.map((r) => this.remoteRow(r)).join('') || `<div class="empty">${t('branches.noRemote')}</div>`}</div>`,
     );
 
     this.groupsEl.innerHTML = parts.join('');
@@ -212,11 +213,11 @@ export class BranchesSidebar {
     if (!b.isRemote) {
       // 本地分支：三列 = 版本图标(当前=绿色对勾) | 提交号(固定6位) | 分支名(过长以 … 省略)
       const ico = b.isCurrent
-        ? `<span class="br-ico cur" title="当前分支">${ICONS.check}</span>`
-        : `<span class="br-ico" title="本地分支">${ICONS.branchIco}</span>`;
+        ? `<span class="br-ico cur" title="${t('branches.ico.current')}">${ICONS.check}</span>`
+        : `<span class="br-ico" title="${t('branches.group.local')}">${ICONS.branchIco}</span>`;
       const hash = b.commit ? b.commit.slice(0, 6) : '';
       const meta = b.upstream
-        ? `跟踪 ${b.upstream}${b.ahead || b.behind ? ` ↑${b.ahead} ↓${b.behind}` : ''}`
+        ? t('branches.tracking', b.upstream) + (b.ahead || b.behind ? ` ↑${b.ahead} ↓${b.behind}` : '')
         : b.ahead || b.behind
           ? `↑${b.ahead} ↓${b.behind}`
           : '';
@@ -226,17 +227,17 @@ export class BranchesSidebar {
   <span class="br-name-cell">
     <span class="br-name" title="${escAttr(b.name)}">${esc(b.name)}</span>
     <span class="br-acts">
-      <button class="mini icon" data-act="rename" title="重命名分支">✎</button>
-      <button class="mini icon" data-act="del" title="删除分支">✕</button>
+      <button class="mini icon" data-act="rename" title="${t('branches.renameTip')}">✎</button>
+      <button class="mini icon" data-act="del" title="${t('branches.deleteTip')}">✕</button>
     </span>
   </span>
 </div>`;
     }
     // 远程分支：保持原有 flex 布局（图标 + 名称 + ↑↓ + 提交号）
     const ab = b.ahead || b.behind ? `<span class="br-ab">↑${b.ahead} ↓${b.behind}</span>` : '';
-    const up = b.upstream ? ` title="跟踪 ${escAttr(b.upstream)}"` : '';
+    const up = b.upstream ? ` title="${t('branches.trackTip', escAttr(b.upstream))}"` : '';
     return `<div class="br-row${b.isCurrent ? ' current' : ''}" data-name="${escAttr(b.name)}" data-remote="1"${up}>
-  <span class="br-ico rem" title="远程分支">${ICONS.remoteIco}</span>
+  <span class="br-ico rem" title="${t('branches.group.remote')}">${ICONS.remoteIco}</span>
   <span class="br-name">${esc(b.shortName ?? b.name)}</span>
   ${ab}
   <span class="flex"></span>
@@ -247,17 +248,17 @@ export class BranchesSidebar {
   private remoteRow(r: RemoteEntry): string {
     const push =
       r.pushUrl && r.pushUrl !== r.fetchUrl
-        ? `<div class="br-url push" title="推送地址">↑ ${esc(r.pushUrl)}</div>`
+        ? `<div class="br-url push" title="${t('branches.pushUrlTip')}">↑ ${esc(r.pushUrl)}</div>`
         : '';
     return `<div class="br-row br-rem" data-rem="${escAttr(r.name)}">
   <div class="br-rem-main">
     <span class="br-name">${esc(r.name)}</span>
     <span class="flex"></span>
-    <button class="mini icon" data-act="fetch-remote" title="更新引用（git fetch）">${ICONS.fetch}</button>
-    <button class="mini icon" data-act="edit-remote" title="修改地址">✎</button>
-    <button class="mini icon" data-act="del-remote" title="删除远程仓库">✕</button>
+    <button class="mini icon" data-act="fetch-remote" title="${t('branches.fetchTip')}">${ICONS.fetch}</button>
+    <button class="mini icon" data-act="edit-remote" title="${t('branches.editUrlTip')}">✎</button>
+    <button class="mini icon" data-act="del-remote" title="${t('branches.deleteRemoteTip')}">✕</button>
   </div>
-  <div class="br-url" title="拉取地址">↓ ${esc(r.fetchUrl || '（未设置）')}</div>
+  <div class="br-url" title="${t('branches.fetchUrlTip')}">↓ ${esc(r.fetchUrl || t('common.notSet'))}</div>
   ${push}
 </div>`;
   }
@@ -323,7 +324,7 @@ export class BranchesSidebar {
       if (ok) toast(ok);
       await this.reload();
     } catch (err) {
-      toast(`${label}失败：${String(err)}`, true);
+      toast(t('branches.failed', label, String(err)), true);
     } finally {
       this.busy = false;
     }
@@ -337,27 +338,27 @@ export class BranchesSidebar {
     const b = this.branches.find((x) => x.name === name);
     if (b?.isCurrent) return;
     // 切换分支会改动工作区文件，误点代价大 —— 二次确认
-    if (!(await this.confirm(`确定切换到分支「${name}」？`))) return;
-    await this.run('检出', () => this.client.send('branch:checkout', { repoRoot: this.repoRoot, ref: name }), `已切换到 ${name}`);
+    if (!(await this.confirm(t('branches.checkoutConfirm', name)))) return;
+    await this.run(t('branches.checkoutOp'), () => this.client.send('branch:checkout', { repoRoot: this.repoRoot, ref: name }), t('branches.checkedOut', name));
   }
 
   private async checkoutRemote(name: string): Promise<void> {
     // 远程分支检出会新建/切换本地跟踪分支，同样先确认
-    if (!(await this.confirm(`确定检出远程分支「${name}」？\n若本地尚无同名分支，将新建本地分支并跟踪该远程分支。`))) return;
+    if (!(await this.confirm(t('branches.checkoutRemoteConfirm', name)))) return;
     await this.run(
-      '检出远程分支',
+      t('branches.checkoutRemoteOp'),
       async () => {
         const r = await this.client.send('branch:checkoutRemote', { repoRoot: this.repoRoot, name });
-        toast(r.created ? `已新建本地分支 ${r.branch} 并跟踪远程` : `已切换到 ${r.branch}`);
+        toast(r.created ? t('branches.createdLocal', r.branch) : t('branches.checkedOut', r.branch));
       },
     );
   }
 
   private async createBranch(base?: string): Promise<void> {
-    const name = await promptValue(base ? `基于 ${base} 新建分支，名称：` : '新分支名称：', '');
+    const name = await promptValue(base ? t('branches.newBranchFromPrompt', base) : t('branches.newBranchPrompt'), '');
     if (!name) return;
     await this.run(
-      '新建分支',
+      t('branches.createBranchOp'),
       () =>
         this.client.send('branch:create', {
           repoRoot: this.repoRoot,
@@ -365,49 +366,49 @@ export class BranchesSidebar {
           ref: base,
           checkout: true,
         }),
-      `已创建并切换到 ${name}`,
+      t('branches.createdSwitched', name),
     );
   }
 
   private async rename(name: string): Promise<void> {
-    const newName = await promptValue('新的分支名称：', name);
+    const newName = await promptValue(t('branches.renamePrompt'), name);
     if (!newName || newName === name) return;
     await this.run(
-      '重命名',
+      t('branches.renameOp'),
       () =>
         this.client.send('branch:rename', { repoRoot: this.repoRoot, oldName: name, newName }),
-      `已重命名为 ${newName}`,
+      t('branches.renamed', newName),
     );
   }
 
   private async remove(name: string, force = false): Promise<void> {
     if (this.branches.find((x) => x.name === name)?.isCurrent) {
-      toast('不能删除当前分支（请先切换到其他分支）', true);
+      toast(t('branches.cannotDeleteCurrent'), true);
       return;
     }
-    if (!(await this.confirm(`确定删除本地分支「${name}」？`))) return;
+    if (!(await this.confirm(t('branches.deleteLocalConfirm', name)))) return;
     try {
       await this.client.send('branch:delete', { repoRoot: this.repoRoot, name, force });
-      toast(`已删除 ${name}`);
+      toast(t('branches.deleted', name));
       await this.reload();
     } catch (err) {
       // 未合并分支被 git 拒绝时（IDEA 会追问是否强制删除）
-      if (!force && (await this.confirm(`删除失败：${String(err)}\n是否强制删除（-D）？`))) {
+      if (!force && (await this.confirm(t('branches.deleteForceConfirm', String(err))))) {
         await this.remove(name, true);
         return;
       }
-      toast(`删除失败：${String(err)}`, true);
+      toast(t('branches.deleteFailed', String(err)), true);
     }
   }
 
   private async deleteRemoteBranch(name: string): Promise<void> {
     const remote = name.includes('/') ? name.slice(0, name.indexOf('/')) : '';
     const branch = name.includes('/') ? name.slice(name.indexOf('/') + 1) : name;
-    if (!(await this.confirm(`确定删除远程分支「${name}」？此操作会改动远程仓库。`))) return;
+    if (!(await this.confirm(t('branches.deleteRemoteConfirm', name)))) return;
     await this.run(
-      '删除远程分支',
+      t('branches.deleteRemoteBranch'),
       () => this.client.send('branch:deleteRemote', { repoRoot: this.repoRoot, remote, branch }),
-      `已删除远程分支 ${name}`,
+      t('branches.deletedRemote', name),
     );
   }
 
@@ -415,17 +416,17 @@ export class BranchesSidebar {
 
   private async addRemote(): Promise<void> {
     // 一次对话框填写所有项（名称 + 地址），不再一步一步连续 prompt
-    const vals = await promptFields('添加远程仓库', [
-      { label: '名称', initial: 'origin', placeholder: '如 origin' },
-      { label: '地址（URL）', initial: '', placeholder: 'https://… 或 git@…' },
+    const vals = await promptFields(t('branches.addRemoteTitle'), [
+      { label: t('branches.addRemote.name'), initial: 'origin', placeholder: t('branches.prompt.namePlaceholder') },
+      { label: t('branches.addRemote.url'), initial: '', placeholder: t('branches.prompt.urlPlaceholder') },
     ]);
     if (!vals) return;
     const [name, url] = vals;
     if (!name || !url) return;
     await this.run(
-      '添加远程',
+      t('branches.addRemoteOp'),
       () => this.client.send('remote:add', { repoRoot: this.repoRoot, name, url }),
-      `已添加远程 ${name}`,
+      t('branches.addedRemote', name),
     );
   }
 
@@ -436,21 +437,21 @@ export class BranchesSidebar {
       Math.round(window.innerWidth / 2 - 90),
       Math.round(window.innerHeight / 3),
       [
-        { label: '修改拉取地址（fetch）' },
-        { label: '修改推送地址（push）' },
+        { label: t('branches.editFetchUrl') },
+        { label: t('branches.editPushUrl') },
       ],
       (i) => {
         if (i !== 0 && i !== 1) return;
         const push = i === 1;
         const initial = push ? current?.pushUrl ?? current?.fetchUrl ?? '' : current?.fetchUrl ?? '';
         void (async () => {
-          const url = await promptValue(`${name} 的${push ? '推送' : '拉取'}地址：`, initial);
+          const url = await promptValue(t('branches.urlPrompt', name, push ? t('word.push') : t('word.pull')), initial);
           if (!url) return;
           await this.run(
-            '修改地址',
+            t('branches.editUrlTip'),
             () =>
               this.client.send('remote:setUrl', { repoRoot: this.repoRoot, name, url, push }),
-            `已更新 ${name} 的${push ? '推送' : '拉取'}地址`,
+            t('branches.urlUpdated', name, push ? t('word.push') : t('word.pull')),
           );
         })();
       },
@@ -458,11 +459,11 @@ export class BranchesSidebar {
   }
 
   private async removeRemote(name: string): Promise<void> {
-    if (!(await this.confirm(`确定删除远程仓库「${name}」？仅移除本地配置，不影响远程服务器。`))) return;
+    if (!(await this.confirm(t('branches.deleteRemoteRepoConfirm', name)))) return;
     await this.run(
-      '删除远程',
+      t('branches.deleteRemoteRepoOp'),
       () => this.client.send('remote:remove', { repoRoot: this.repoRoot, name }),
-      `已删除远程 ${name}`,
+      t('branches.deletedRemoteRepo', name),
     );
   }
 
@@ -472,10 +473,10 @@ export class BranchesSidebar {
     this.busy = true;
     try {
       const text = await this.client.send('remote:fetch', { repoRoot: this.repoRoot, remote: name });
-      toast(text || `已同步 ${name} 的引用`);
+      toast(text || t('branches.synced', name));
       await this.reload();
     } catch (err) {
-      toast(`同步 ${name} 失败：${String(err)}`, true);
+      toast(t('branches.syncFailed', name, String(err)), true);
     } finally {
       this.busy = false;
     }
@@ -491,10 +492,10 @@ export class BranchesSidebar {
         kind === 'pull'
           ? await this.client.send('repo:pull', { repoRoot: this.repoRoot })
           : await this.client.send('repo:push', { repoRoot: this.repoRoot });
-      toast(text || (kind === 'pull' ? '拉取完成' : '推送完成'));
+      toast(text || (kind === 'pull' ? t('branches.pullDone') : t('branches.pushDone')));
       await this.reload();
     } catch (err) {
-      toast(`${kind === 'pull' ? '拉取' : '推送'}失败：${String(err)}`, true);
+      toast(t('branches.failed', kind === 'pull' ? t('word.pull') : t('word.push'), String(err)), true);
     } finally {
       this.busy = false;
     }
@@ -512,25 +513,25 @@ export class BranchesSidebar {
     const cur = this.currentRef();
     const cmp =
       cur && cur !== name
-        ? [{ label: `与当前分支对比（${cur} ↔ ${name}）`, action: () => this.compareWithCurrent(name) }]
+        ? [{ label: t('branches.menu.compare', cur, name), action: () => this.compareWithCurrent(name) }]
         : [];
     const items: Array<{ label: string; danger?: boolean; action: () => void }> = isRemote
       ? [
-          { label: '检出为本地分支…', action: () => void this.checkoutRemote(name) },
+          { label: t('branches.menu.checkoutAs'), action: () => void this.checkoutRemote(name) },
           ...cmp,
-          { label: '合并到当前分支', action: () => void this.merge(name) },
-          { label: '将当前分支变基到此', action: () => void this.rebase(name) },
-          { label: '基于此新建分支…', action: () => void this.createBranch(name) },
-          { label: '删除远程分支…', danger: true, action: () => void this.deleteRemoteBranch(name) },
+          { label: t('branches.menu.mergeInto'), action: () => void this.merge(name) },
+          { label: t('branches.menu.rebaseOnto'), action: () => void this.rebase(name) },
+          { label: t('branches.menu.newBranchFrom'), action: () => void this.createBranch(name) },
+          { label: t('branches.menu.deleteRemoteBranch'), danger: true, action: () => void this.deleteRemoteBranch(name) },
         ]
       : [
-          { label: '检出 (Checkout)', action: () => void this.checkout(name) },
+          { label: t('branches.menu.checkout'), action: () => void this.checkout(name) },
           ...cmp,
-          { label: '基于此新建分支…', action: () => void this.createBranch(name) },
-          { label: '合并到当前分支', action: () => void this.merge(name) },
-          { label: '将当前分支变基到此', action: () => void this.rebase(name) },
-          { label: '重命名…', action: () => void this.rename(name) },
-          { label: '删除…', danger: true, action: () => void this.remove(name) },
+          { label: t('branches.menu.newBranchFrom'), action: () => void this.createBranch(name) },
+          { label: t('branches.menu.mergeInto'), action: () => void this.merge(name) },
+          { label: t('branches.menu.rebaseOnto'), action: () => void this.rebase(name) },
+          { label: t('branches.menu.rename'), action: () => void this.rename(name) },
+          { label: t('branches.menu.delete'), danger: true, action: () => void this.remove(name) },
         ];
     showMenuAt(this.menuEl, x, y, items, (i) => items[i]?.action());
   }
@@ -545,19 +546,19 @@ export class BranchesSidebar {
   private compareWithCurrent(name: string): void {
     const base = this.currentRef();
     if (!base) {
-      toast('尚未读取到当前分支', true);
+      toast(t('branches.noCurrentBranch'), true);
       return;
     }
     void this.client
       .send('ui:openCompare', { repoRoot: this.repoRoot, base, target: name })
-      .catch((err) => toast(`打开对比失败：${String(err)}`, true));
+      .catch((err) => toast(t('branches.openCompareFailed', String(err)), true));
   }
 
   private async merge(ref: string): Promise<void> {
-    await this.run('合并', () => this.client.send('merge:run', { repoRoot: this.repoRoot, ref }), `已将 ${ref} 合并到当前分支`);
+    await this.run(t('branches.mergeOp'), () => this.client.send('merge:run', { repoRoot: this.repoRoot, ref }), t('branches.merged', ref));
   }
 
   private async rebase(ref: string): Promise<void> {
-    await this.run('变基', () => this.client.send('rebase:run', { repoRoot: this.repoRoot, ref }), `已将当前分支变基到 ${ref}`);
+    await this.run(t('branches.rebaseOp'), () => this.client.send('rebase:run', { repoRoot: this.repoRoot, ref }), t('branches.rebased', ref));
   }
 }

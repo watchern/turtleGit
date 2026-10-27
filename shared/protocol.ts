@@ -87,6 +87,13 @@ export type PanelMode = 'auto' | 'floating' | 'embedded';
 /** 变更文件列表的视图模式：tree=按目录分组，list=平铺完整路径 */
 export type StatusViewMode = 'tree' | 'list';
 
+/**
+ * 界面语言：简体中文 / 繁体中文 / 英文。
+ * **其余语种（日/韩/德/法…）一律展示英文**——不为单一扩展维护全套译文。
+ * 由宿主按 `turtlegit.language` 设置与 `vscode.env.language` 推断后下发。
+ */
+export type Locale = 'zh-CN' | 'zh-TW' | 'en';
+
 export type WebviewView =
   | 'commit'
   | 'log'
@@ -121,6 +128,13 @@ export interface WebviewInit {
   tab?: SidebarTab;
   /** stash 面板启动时预选的 stash ref（侧边栏「查看」带入，如 stash@{0}） */
   stashRef?: string;
+  /** 界面语言（宿主推断后下发，webview 只按它取字典） */
+  locale?: Locale;
+  /**
+   * 该语言的完整文案字典（key → 译文）。只下发当前语言一份，避免把三种语言
+   * 都塞进 webview；动态文案用 `{0}` `{1}` 占位，由 `t()` 填参。
+   */
+  strings?: Record<string, string>;
 }
 
 // ============ RPC 请求 ============

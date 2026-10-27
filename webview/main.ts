@@ -12,6 +12,7 @@ import { StashPanel } from './stash/StashPanel';
 import { BlamePanel } from './blame/BlamePanel';
 import { ComparePanel } from './compare/ComparePanel';
 import { WebviewInit } from '../shared/protocol';
+import { setStrings, t } from './i18n';
 
 declare function acquireVsCodeApi<T = unknown>(): {
   postMessage(message: unknown): void;
@@ -34,6 +35,8 @@ function mount(init: WebviewInit): void {
   currentDisposer?.();
   // 重挂载前清掉上一视图的事件订阅（保留 init），避免 DOM 销毁后仍有监听器报错
   client.clearHandlers(['init']);
+  // 注入当前语言字典（宿主按语言只下发一份），之后整面板用 t() 渲染
+  setStrings(init.strings);
   app.innerHTML = '';
   document.body.dataset.view = init.view;
   switch (init.view) {
@@ -77,7 +80,7 @@ try {
   const init = decodeParams(app.dataset.params ?? '') as unknown as WebviewInit;
   mount(init);
 } catch (err) {
-  app.innerHTML = `<div class="diff-empty">初始化失败：${String(err)}</div>`;
+  app.innerHTML = `<div class="diff-empty">${t('common.initFailed', String(err))}</div>`;
 }
 
 // 通知宿主：webview 已就绪

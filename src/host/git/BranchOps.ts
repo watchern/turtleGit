@@ -1,4 +1,5 @@
 import { GitRunner, GitRunnerError, GitRunResult } from './GitRunner';
+import * as i18n from '../i18n';
 import { BranchInfo } from '../../../shared/protocol';
 
 export interface BranchEntry {
@@ -175,16 +176,16 @@ export class BranchOps {
   ): Promise<void> {
     const args = checkout ? ['checkout', '-b', name] : ['branch', name];
     if (ref) args.push(ref);
-    await this.assertOk(args, repoRoot, '创建分支失败');
+    await this.assertOk(args, repoRoot, i18n.t('ops.createBranchFailed'));
   }
 
   async deleteBranch(repoRoot: string, name: string, force = false): Promise<void> {
     const args = ['branch', force ? '-D' : '-d', name];
-    await this.assertOk(args, repoRoot, '删除分支失败');
+    await this.assertOk(args, repoRoot, i18n.t('ops.deleteBranchFailed'));
   }
 
   async renameBranch(repoRoot: string, oldName: string, newName: string): Promise<void> {
-    await this.assertOk(['branch', '-m', oldName, newName], repoRoot, '重命名分支失败');
+    await this.assertOk(['branch', '-m', oldName, newName], repoRoot, i18n.t('ops.renameBranchFailed'));
   }
 
   /**
@@ -198,7 +199,7 @@ export class BranchOps {
     // 入参形态：`remotes/origin/feature`（git 原始）或 `origin/feature`（BranchEntry.name）
     const raw = remoteBranch.replace(/^remotes\//, '');
     const slash = raw.indexOf('/');
-    if (slash <= 0) throw new Error(`无法解析远程分支：${remoteBranch}`);
+    if (slash <= 0) throw new Error(i18n.t('ops.parseRemoteBranchFailed', remoteBranch));
     const remote = raw.slice(0, slash);
     const short = raw.slice(slash + 1);
     if (await this.branchExists(repoRoot, short)) {
@@ -208,7 +209,7 @@ export class BranchOps {
     await this.assertOk(
       ['checkout', '-b', short, '--track', `${remote}/${short}`],
       repoRoot,
-      '检出远程分支失败',
+      i18n.t('ops.checkoutRemoteFailed'),
     );
     return { branch: short, created: true };
   }
@@ -218,7 +219,7 @@ export class BranchOps {
     await this.assertOk(
       ['push', remote, '--delete', branch],
       repoRoot,
-      '删除远程分支失败',
+      i18n.t('ops.deleteRemoteBranchFailed'),
       BranchOps.NET_TIMEOUT,
     );
   }
@@ -240,11 +241,11 @@ export class BranchOps {
   }
 
   async addRemote(repoRoot: string, name: string, url: string): Promise<void> {
-    await this.assertOk(['remote', 'add', name, url], repoRoot, '添加远程仓库失败');
+    await this.assertOk(['remote', 'add', name, url], repoRoot, i18n.t('ops.addRemoteFailed'));
   }
 
   async removeRemote(repoRoot: string, name: string): Promise<void> {
-    await this.assertOk(['remote', 'remove', name], repoRoot, '删除远程仓库失败');
+    await this.assertOk(['remote', 'remove', name], repoRoot, i18n.t('ops.removeRemoteFailed'));
   }
 
   /** 修改 remote 地址；push=true 时只改 push 地址（--push） */
@@ -256,7 +257,7 @@ export class BranchOps {
   ): Promise<void> {
     const args = ['remote', 'set-url', name, url];
     if (push) args.push('--push');
-    await this.assertOk(args, repoRoot, '修改远程地址失败');
+    await this.assertOk(args, repoRoot, i18n.t('ops.setUrlFailed'));
   }
 
   /**
@@ -264,14 +265,14 @@ export class BranchOps {
    * fetch 的进度/摘要信息主要在 stderr，成功时也可能有输出（如 "-> origin/main"）。
    */
   async fetchRemote(repoRoot: string, remote: string): Promise<GitRunResult> {
-    if (!remote) throw new Error('未指定远程仓库名称');
+    if (!remote) throw new Error(i18n.t('ops.noRemoteName'));
     const r = await this.runner.run(['fetch', remote, '--progress'], {
       cwd: repoRoot,
       timeoutMs: BranchOps.NET_TIMEOUT,
     });
     if (r.code !== 0) {
       throw new GitRunnerError(
-        this.cleanOutput(`${r.stdout}\n${r.stderr}`) || `git fetch ${remote} 失败`,
+        this.cleanOutput(`${r.stdout}\n${r.stderr}`) || i18n.t('ops.fetchFailed', remote),
         r,
       );
     }
@@ -307,17 +308,17 @@ export class BranchOps {
     const args = ['tag', name];
     if (message) args.push('-m', message);
     if (ref) args.push(ref);
-    await this.assertOk(args, repoRoot, '创建标签失败');
+    await this.assertOk(args, repoRoot, i18n.t('ops.createTagFailed'));
   }
 
   async deleteTag(repoRoot: string, name: string): Promise<void> {
-    await this.assertOk(['tag', '-d', name], repoRoot, '删除标签失败');
+    await this.assertOk(['tag', '-d', name], repoRoot, i18n.t('ops.deleteTagFailed'));
   }
 
   // ---------- 检出 / 切换 ----------
 
   async checkout(repoRoot: string, ref: string): Promise<void> {
-    await this.assertOk(['checkout', ref], repoRoot, '切换失败');
+    await this.assertOk(['checkout', ref], repoRoot, i18n.t('ops.checkoutFailed'));
   }
 
   // ---------- 合并 / 拣选 / 变基 ----------
@@ -332,24 +333,24 @@ export class BranchOps {
     if (opts.ffOnly) args.push('--ff-only');
     if (opts.noCommit) args.push('--no-commit');
     args.push(ref);
-    await this.assertOk(args, repoRoot, '合并失败');
+    await this.assertOk(args, repoRoot, i18n.t('ops.mergeFailed'));
   }
 
   async mergeAbort(repoRoot: string): Promise<void> {
-    await this.assertOk(['merge', '--abort'], repoRoot, '放弃合并失败');
+    await this.assertOk(['merge', '--abort'], repoRoot, i18n.t('ops.mergeAbortFailed'));
   }
 
   async cherryPick(repoRoot: string, hashes: string[]): Promise<void> {
     if (!hashes.length) return;
-    await this.assertOk(['cherry-pick', ...hashes], repoRoot, '拣选失败');
+    await this.assertOk(['cherry-pick', ...hashes], repoRoot, i18n.t('ops.cherryFailed'));
   }
 
   async cherryPickAbort(repoRoot: string): Promise<void> {
-    await this.assertOk(['cherry-pick', '--abort'], repoRoot, '放弃拣选失败');
+    await this.assertOk(['cherry-pick', '--abort'], repoRoot, i18n.t('ops.cherryAbortFailed'));
   }
 
   async cherryPickContinue(repoRoot: string): Promise<void> {
-    await this.assertOk(['cherry-pick', '--continue'], repoRoot, '继续拣选失败');
+    await this.assertOk(['cherry-pick', '--continue'], repoRoot, i18n.t('ops.cherryContinueFailed'));
   }
 
   async rebase(
@@ -361,32 +362,32 @@ export class BranchOps {
     if (opts.autostash !== false) args.push('--autostash');
     if (opts.interactive) args.push('-i');
     args.push(ref);
-    await this.assertOk(args, repoRoot, '变基失败');
+    await this.assertOk(args, repoRoot, i18n.t('ops.rebaseFailed'));
   }
 
   async rebaseAbort(repoRoot: string): Promise<void> {
-    await this.assertOk(['rebase', '--abort'], repoRoot, '放弃变基失败');
+    await this.assertOk(['rebase', '--abort'], repoRoot, i18n.t('ops.rebaseAbortFailed'));
   }
 
   async rebaseContinue(repoRoot: string): Promise<void> {
-    await this.assertOk(['rebase', '--continue'], repoRoot, '继续变基失败');
+    await this.assertOk(['rebase', '--continue'], repoRoot, i18n.t('ops.rebaseContinueFailed'));
   }
 
   async rebaseSkip(repoRoot: string): Promise<void> {
-    await this.assertOk(['rebase', '--skip'], repoRoot, '跳过提交失败');
+    await this.assertOk(['rebase', '--skip'], repoRoot, i18n.t('ops.rebaseSkipFailed'));
   }
 
   // ---------- 重置 / 还原 ----------
 
   async reset(repoRoot: string, ref: string, mode: 'soft' | 'mixed' | 'hard'): Promise<void> {
-    await this.assertOk(['reset', `--${mode}`, ref], repoRoot, '重置失败');
+    await this.assertOk(['reset', `--${mode}`, ref], repoRoot, i18n.t('ops.resetFailed'));
   }
 
   async revert(repoRoot: string, hash: string, noCommit = false): Promise<void> {
     const args = ['revert'];
     if (noCommit) args.push('--no-commit');
     args.push(hash);
-    await this.assertOk(args, repoRoot, '还原失败');
+    await this.assertOk(args, repoRoot, i18n.t('ops.revertFailed'));
   }
 
   // ---------- Stash ----------
@@ -420,19 +421,19 @@ export class BranchOps {
     const args = ['stash', 'push'];
     if (message) args.push('-m', message);
     if (paths?.length) args.push('--', ...paths);
-    await this.assertOk(args, repoRoot, '保存 stash 失败');
+    await this.assertOk(args, repoRoot, i18n.t('ops.stashPushFailed'));
   }
 
   async stashApply(repoRoot: string, index: number): Promise<void> {
-    await this.assertOk(['stash', 'apply', `stash@{${index}}`], repoRoot, '应用 stash 失败');
+    await this.assertOk(['stash', 'apply', `stash@{${index}}`], repoRoot, i18n.t('ops.stashApplyFailed'));
   }
 
   async stashPop(repoRoot: string, index: number): Promise<void> {
-    await this.assertOk(['stash', 'pop', `stash@{${index}}`], repoRoot, '恢复 stash 失败');
+    await this.assertOk(['stash', 'pop', `stash@{${index}}`], repoRoot, i18n.t('ops.stashPopFailed'));
   }
 
   async stashDrop(repoRoot: string, index: number): Promise<void> {
-    await this.assertOk(['stash', 'drop', `stash@{${index}}`], repoRoot, '删除 stash 失败');
+    await this.assertOk(['stash', 'drop', `stash@{${index}}`], repoRoot, i18n.t('ops.stashDropFailed'));
   }
 
   // ---------- Reflog ----------
@@ -562,11 +563,11 @@ export class BranchOps {
     if (!(await this.upstreamRef(repoRoot))) {
       const branch = await this.currentBranch(repoRoot);
       if (!branch) {
-        throw new Error('当前为 detached HEAD，无法拉取，请先在终端执行 git pull。');
+        throw new Error(i18n.t('ops.detachedPull'));
       }
       const remote = await this.firstRemote(repoRoot);
       if (!remote) {
-        throw new Error('仓库没有配置任何 remote，无法拉取。');
+        throw new Error(i18n.t('ops.noRemotePull'));
       }
       args.push(remote, branch);
     }
@@ -577,7 +578,7 @@ export class BranchOps {
     if (r.code !== 0) {
       // 冲突时关键信息在 stdout（Auto-merging / CONFLICT），stderr 为辅
       throw new GitRunnerError(
-        this.cleanOutput(`${r.stdout}\n${r.stderr}`) || 'git pull 失败',
+        this.cleanOutput(`${r.stdout}\n${r.stderr}`) || i18n.t('ops.pullFailed'),
         r,
       );
     }
@@ -591,11 +592,11 @@ export class BranchOps {
     if (!(await this.upstreamRef(repoRoot))) {
       const branch = await this.currentBranch(repoRoot);
       if (!branch) {
-        throw new Error('当前为 detached HEAD，无法推送，请先在终端执行 git push。');
+        throw new Error(i18n.t('ops.detachedPush'));
       }
       const remote = await this.firstRemote(repoRoot);
       if (!remote) {
-        throw new Error('仓库没有配置任何 remote，无法推送。');
+        throw new Error(i18n.t('ops.noRemotePush'));
       }
       args.push('-u', remote, branch);
     }
@@ -604,7 +605,7 @@ export class BranchOps {
       timeoutMs: BranchOps.NET_TIMEOUT,
     });
     if (r.code !== 0) {
-      throw new GitRunnerError(this.cleanOutput(r.stderr) || 'git push 失败', r);
+      throw new GitRunnerError(this.cleanOutput(r.stderr) || i18n.t('ops.pushFailed'), r);
     }
     return r;
   }

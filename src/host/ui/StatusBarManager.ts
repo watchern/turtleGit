@@ -1,14 +1,15 @@
 import * as vscode from 'vscode';
+import * as i18n from '../i18n';
 import { RepositoryStore } from '../core/RepositoryStore';
 import { BranchInfo } from '../../../shared/protocol';
 
 const STATE_CN: Record<string, string> = {
-  merging: '合并中',
-  rebasing: '变基中',
-  'cherry-picking': '拣选中',
-  reverting: '还原中',
-  bisecting: '二分中',
-  applying: '应用补丁中',
+  merging: i18n.t('commit.state.merging'),
+  rebasing: i18n.t('commit.state.rebasing'),
+  'cherry-picking': i18n.t('commit.state.cherryPicking'),
+  reverting: i18n.t('commit.state.reverting'),
+  bisecting: i18n.t('state.bisecting'),
+  applying: i18n.t('commit.state.applying'),
 };
 
 /**
@@ -21,7 +22,7 @@ export class StatusBarManager {
   constructor(private store: RepositoryStore) {
     this.item = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Left, 100);
     this.item.command = 'turtlegit.log';
-    this.item.tooltip = 'TurtleGit: 显示日志';
+    this.item.tooltip = i18n.t('statusbar.tip');
 
     this.disposables.push(
       store.onDidChangeBranch(({ repoRoot, info }) => this.update(repoRoot, info)),
@@ -36,7 +37,7 @@ export class StatusBarManager {
   private update(_repoRoot: string, info: BranchInfo): void {
     let text = `$(git-branch) ${info.name}`;
     if (info.detached) {
-      text = `$(git-commit) ${info.name}（分离头指针）`;
+      text = i18n.t('statusbar.detached', info.name);
     }
     if (info.ahead || info.behind) {
       const parts: string[] = [];

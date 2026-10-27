@@ -1,13 +1,14 @@
 import { RpcClient } from '../bridge';
+import { t } from '../i18n';
 import { CommitSidebarPanel } from '../commit/CommitSidebar';
 import { BranchesSidebar } from '../branches/BranchesSidebar';
 import { StashSidebarPanel } from '../stash/StashSidebarPanel';
 import { SidebarTab, WebviewInit } from '../../shared/protocol';
 
 const TABS: { id: SidebarTab; label: string }[] = [
-  { id: 'commit', label: '提交' },
-  { id: 'branches', label: '分支' },
-  { id: 'stash', label: '暂存' },
+  { id: 'commit', label: t('commit.btn.commit') },
+  { id: 'branches', label: t('common.branch') },
+  { id: 'stash', label: t('tab.stash') },
 ];
 
 /**

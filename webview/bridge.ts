@@ -1,4 +1,5 @@
 import type { RpcEvents, RpcRequestType, RpcRequests } from '../shared/protocol';
+import { t } from './i18n';
 
 type Handler<K extends keyof RpcEvents> = (payload: RpcEvents[K]) => void;
 
@@ -74,7 +75,7 @@ export class RpcClient {
         if (m.ok) {
           p.resolve(m.payload as never);
         } else {
-          p.reject(new Error(m.error ?? 'RPC 失败'));
+          p.reject(new Error(m.error ?? t('common.rpcFailed')));
         }
       }
       return;

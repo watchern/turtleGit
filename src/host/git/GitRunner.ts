@@ -2,6 +2,7 @@ import { spawn } from 'child_process';
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
+import * as i18n from '../i18n';
 
 export interface GitRunOptions {
   cwd: string;
@@ -105,7 +106,7 @@ export class GitRunner {
         if (timer) clearTimeout(timer);
         reject(
           new GitRunnerError(
-            `无法执行 git（${exe}）：${err.message}。请在设置 turtlegit.gitPath 中指定 git 路径。`,
+            i18n.t('git.cannotRun', exe, err.message),
           ),
         );
       });
@@ -122,7 +123,7 @@ export class GitRunner {
         // 退出码为 0 = 命令干净地跑完了（被 SIGKILL 的进程退出码不会是 0），
         // 即使因事件循环饿死被误标了 timedOut，也应按成功返回。
         if (timedOut && result.code !== 0) {
-          reject(new GitRunnerError(`git 命令超时：git ${args.join(' ')}`, result));
+          reject(new GitRunnerError(i18n.t('git.timeout', args.join(' ')), result));
         } else {
           resolve(result);
         }
@@ -140,7 +141,7 @@ export class GitRunner {
     const r = await this.run(args, opts);
     if (r.code !== 0) {
       throw new GitRunnerError(
-        (r.stderr.trim() || `git ${args.join(' ')} 失败（退出码 ${r.code}）`),
+        (r.stderr.trim() || i18n.t('git.failedWithCode', args.join(' '), r.code)),
         r,
       );
     }

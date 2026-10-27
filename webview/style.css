@@ -1016,11 +1016,21 @@ body.vscode-high-contrast-light {
   gap: 4px;
 }
 
+/* 搜索框左侧放大镜：让后面的 ↑↓ 明确读作「上一处/下一处匹配」而不是「正序/倒序」 */
+.log-filter-search-icon {
+  display: inline-flex;
+  align-items: center;
+  color: var(--muted);
+  flex: none;
+}
+
+/* 与其它筛选输入框（.filter）保持同样的字号/内边距，避免搜索框显得比别的框小一号 */
 .log-filter-search-input {
   width: 170px;
   min-width: 0;
-  font-size: 11px;
-  padding: 2px 6px;
+  font-family: inherit;
+  font-size: 12px;
+  padding: 3px 8px;
   background: var(--input-bg);
   color: var(--input-fg);
   border: 1px solid var(--input-border);
@@ -1029,6 +1039,13 @@ body.vscode-high-contrast-light {
 
 .log-filter-search-input:focus {
   outline: 1px solid var(--focus);
+}
+
+/* 服务端范围（全部历史 / 变更路径）由 git 直接过滤，命中计数与 ↑↓ 无意义，隐藏 */
+.log-filter-search:not(.client-search) #search-info,
+.log-filter-search:not(.client-search) #btn-search-prev,
+.log-filter-search:not(.client-search) #btn-search-next {
+  display: none;
 }
 
 /* 弹出式筛选按钮：分支: 值 ▾ */
@@ -1693,14 +1710,19 @@ button.icon:hover {
 
 .sc-commit-row .sc-commit-mode {
   flex: none;
-  width: 24px;
+  width: 38px;
   padding: 0;
-  font-size: 10px;
-  line-height: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
   border-top-left-radius: 0;
   border-bottom-left-radius: 0;
   border-left: 1px solid color-mix(in srgb, var(--fg) 25%, transparent);
   border-left: 1px solid rgba(128, 128, 128, 0.25);
+}
+
+.sc-commit-row .sc-commit-mode svg {
+  display: block;
 }
 
 .sc-list {

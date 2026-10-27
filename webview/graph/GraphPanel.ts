@@ -1,4 +1,5 @@
 import { RpcClient } from '../bridge';
+import { t } from '../i18n';
 import { renderDiff, patchStat } from '../diff/DiffRenderer';
 import { bindDiffInteractions, loadPatchAndCounts } from '../diff/expander';
 import { toast, promptValue, showMenuAt, escapeHtml } from '../ui/dialogs';
@@ -89,9 +90,9 @@ function fmtDate(iso: string): string {
 
 /** 日期预设（与 Intellig log 的 datePreset 对齐） */
 const DATE_PRESETS: Array<{ label: string; value: string | undefined }> = [
-  { label: '全部时间', value: undefined },
-  { label: '最近 24 小时', value: '24h' },
-  { label: '最近 7 天', value: '7d' },
+  { label: t('graph.allTime'), value: undefined },
+  { label: t('graph.last24h'), value: '24h' },
+  { label: t('graph.last7d'), value: '7d' },
 ];
 
 /**
@@ -123,6 +124,13 @@ export class GraphPanel {
   private search = '';
   private matchRows: number[] = [];
   private searchPos = -1;
+  /**
+   * 搜索框作用范围（合并了原先的三个输入框）：
+   * - loaded：在**已加载**提交里查找并跳转（客户端即时匹配，↑↓ 上一处/下一处）
+   * - history：按提交信息在**全部历史**中筛选（服务端 git log --grep）
+   * - path：按**变更路径**筛选（服务端 git log -- <path>）
+   */
+  private searchScope: 'loaded' | 'history' | 'path' = 'loaded';
 
   // 对比模式
   private compare: CompareState | undefined;
@@ -169,47 +177,54 @@ export class GraphPanel {
     this.dateW = this.clampCol(saved?.dateW, DATE_W);
     this.el.innerHTML = `
 <div class="toolbar">
-  <button id="btn-refresh" title="刷新 (F5)">刷新</button>
+  <button id="btn-refresh" title="${t('common.refreshTip')}">${t('common.refresh')}</button>
   <span class="flex"></span>
   <span class="page-info" id="page-info"></span>
-  <button id="btn-more" class="mini" title="加载更多">加载更多</button>
+  <button id="btn-more" class="mini" title="${t('graph.more')}">${t('graph.more')}</button>
 </div>
 <div class="split" id="split">
   <section class="pane left graph-pane" id="graph-pane" style="width:${this.paneW}px; --col-author-width:${this.authorW}px; --col-date-width:${this.dateW}px; --col-hash-width:${this.hashW}px; --col-subject-width:${this.subjectW}px; --graph-w:60px">
     <div class="log-filter-row">
-      <div class="log-filter-search">
-        <input type="search" id="flt-search" class="log-filter-search-input" placeholder="搜索 哈希/消息/作者/引用" title="搜索（Ctrl+F 聚焦，回车下一个，Shift+回车上一个）">
+      <div class="log-filter-search client-search" id="log-filter-search">
+        <span class="log-filter-search-icon" aria-hidden="true"><svg width="13" height="13" viewBox="0 0 16 16"><circle cx="7" cy="7" r="4.6" fill="none" stroke="currentColor" stroke-width="1.4"/><path d="M10.4 10.4 14 14" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg></span>
+        <input type="search" id="flt-search" class="log-filter-search-input" placeholder="${t('graph.searchPlaceholder')}" title="${t('graph.searchTip')}">
         <span class="search-info" id="search-info"></span>
-        <button class="mini icon" id="btn-search-prev" title="上一个匹配 (Shift+Enter)">↑</button>
-        <button class="mini icon" id="btn-search-next" title="下一个匹配 (Enter)">↓</button>
+        <button class="mini icon" id="btn-search-prev" title="${t('graph.prevMatch')}">↑</button>
+        <button class="mini icon" id="btn-search-next" title="${t('graph.nextMatch')}">↓</button>
+      </div>
+      <div class="log-filter-pop" id="pop-scope-wrap">
+        <button type="button" class="log-filter-pop-btn" id="pop-scope-btn" aria-haspopup="true" aria-expanded="false" title="${t('graph.scopeTip')}">
+          <span class="log-filter-pop-label">${t('graph.scopeLabel')}</span>
+          <span class="log-filter-pop-value" id="pop-scope-value">${t('graph.scope.loaded')}</span>
+          <span class="log-filter-pop-caret">▾</span>
+        </button>
+        <div class="log-filter-popup" id="pop-scope" hidden></div>
       </div>
       <div class="log-filter-pop" id="pop-branch-wrap">
-        <button type="button" class="log-filter-pop-btn" id="pop-branch-btn" aria-haspopup="true" aria-expanded="false" title="按分支筛选">
-          <span class="log-filter-pop-label">分支:</span>
-          <span class="log-filter-pop-value" id="pop-branch-value">所有分支</span>
+        <button type="button" class="log-filter-pop-btn" id="pop-branch-btn" aria-haspopup="true" aria-expanded="false" title="${t('graph.filterBranch')}">
+          <span class="log-filter-pop-label">${t('graph.labelBranch')}</span>
+          <span class="log-filter-pop-value" id="pop-branch-value">${t('graph.allBranches')}</span>
           <span class="log-filter-pop-caret">▾</span>
         </button>
         <div class="log-filter-popup" id="pop-branch" hidden></div>
       </div>
       <div class="log-filter-pop" id="pop-author-wrap">
-        <button type="button" class="log-filter-pop-btn" id="pop-author-btn" aria-haspopup="true" aria-expanded="false" title="按作者筛选">
-          <span class="log-filter-pop-label">作者:</span>
-          <span class="log-filter-pop-value" id="pop-author-value">所有用户</span>
+        <button type="button" class="log-filter-pop-btn" id="pop-author-btn" aria-haspopup="true" aria-expanded="false" title="${t('graph.filterAuthor')}">
+          <span class="log-filter-pop-label">${t('graph.labelAuthor')}</span>
+          <span class="log-filter-pop-value" id="pop-author-value">${t('graph.allUsers')}</span>
           <span class="log-filter-pop-caret">▾</span>
         </button>
         <div class="log-filter-popup" id="pop-author" hidden></div>
       </div>
       <div class="log-filter-pop" id="pop-date-wrap">
-        <button type="button" class="log-filter-pop-btn" id="pop-date-btn" aria-haspopup="true" aria-expanded="false" title="按时间筛选">
-          <span class="log-filter-pop-label">日期:</span>
-          <span class="log-filter-pop-value" id="pop-date-value">全部时间</span>
+        <button type="button" class="log-filter-pop-btn" id="pop-date-btn" aria-haspopup="true" aria-expanded="false" title="${t('graph.filterDate')}">
+          <span class="log-filter-pop-label">${t('graph.labelDate')}</span>
+          <span class="log-filter-pop-value" id="pop-date-value">${t('graph.allTime')}</span>
           <span class="log-filter-pop-caret">▾</span>
         </button>
         <div class="log-filter-popup" id="pop-date" hidden></div>
       </div>
-      <input type="search" id="flt-path" class="filter" placeholder="路径">
-      <input type="search" id="flt-grep" class="filter" placeholder="信息关键字">
-      <label class="chk"><input type="checkbox" id="chk-nomerge"> 排除合并</label>
+      <label class="chk"><input type="checkbox" id="chk-nomerge"> ${t('graph.noMerges')}</label>
     </div>
     <!-- 表头必须在滚动容器内：① 与行共享同一宽度（否则出现竖向滚动条时行被挤窄、
          表头仍是整宽，右侧作者/日期列整体偏移一个滚动条宽度，分割线对不上）；
@@ -217,14 +232,14 @@ export class GraphPanel {
     <div class="graph-scroll" id="graph-scroll">
       <div class="log-column-header">
         <div class="log-column-header-info">
-          <div class="log-column-resize-handle first" data-column-resize="graph" role="separator" aria-label="调整图沟槽宽（lane 间距）" tabindex="0" title="拖拽或方向键（±10px）调整图沟槽宽；双击复位为自适应压缩"></div>
-          <div class="log-column-header-hash">提交</div>
-          <div class="log-column-resize-handle" data-column-resize="hash" role="separator" aria-label="调整提交号列宽" tabindex="0" title="拖拽或方向键（±10px）调整提交号列宽；双击复位"></div>
-          <div class="log-column-header-title">消息</div>
-          <div class="log-column-resize-handle" data-column-resize="subject" role="separator" aria-label="调整消息列宽" tabindex="0" title="拖拽或方向键（±10px）调整消息列宽；双击复位"></div>
-          <div class="log-column-header-author">作者</div>
-          <div class="log-column-resize-handle" data-column-resize="author" role="separator" aria-label="调整作者列宽" tabindex="0" title="拖拽或方向键（±10px）调整作者列宽；双击复位"></div>
-          <div class="log-column-header-date">日期</div>
+          <div class="log-column-resize-handle first" data-column-resize="graph" role="separator" aria-label="${t('graph.colGraphAria')}" tabindex="0" title="${t('graph.colGraphTip')}"></div>
+          <div class="log-column-header-hash">${t('commit.btn.commit')}</div>
+          <div class="log-column-resize-handle" data-column-resize="hash" role="separator" aria-label="${t('graph.colHashAria')}" tabindex="0" title="${t('graph.colHashTip')}"></div>
+          <div class="log-column-header-title">${t('graph.col.subject')}</div>
+          <div class="log-column-resize-handle" data-column-resize="subject" role="separator" aria-label="${t('graph.colSubjectAria')}" tabindex="0" title="${t('graph.colSubjectTip')}"></div>
+          <div class="log-column-header-author">${t('log.authorPlaceholder')}</div>
+          <div class="log-column-resize-handle" data-column-resize="author" role="separator" aria-label="${t('graph.colAuthorAria')}" tabindex="0" title="${t('graph.colAuthorTip')}"></div>
+          <div class="log-column-header-date">${t('graph.col.date')}</div>
         </div>
       </div>
       <div class="gp-canvas" id="gp-canvas">
@@ -233,22 +248,22 @@ export class GraphPanel {
       </div>
     </div>
   </section>
-  <div class="split-handle" id="split-handle" title="拖拽调整面板宽度"></div>
+  <div class="split-handle" id="split-handle" title="${t('graph.splitTip')}"></div>
   <section class="pane right">
-    <div class="pane-head"><span id="commit-title">提交详情</span></div>
-    <div class="commit-detail" id="commit-detail"><div class="empty">点击图中节点查看详情</div></div>
+    <div class="pane-head"><span id="commit-title">${t('graph.detailTitle')}</span></div>
+    <div class="commit-detail" id="commit-detail"><div class="empty">${t('graph.detailHint')}</div></div>
     <div class="pane-head">
-      <span id="files-title">变更文件</span><span class="count" id="file-count"></span>
+      <span id="files-title">${t('common.files')}</span><span class="count" id="file-count"></span>
       <span class="flex"></span>
-      <button class="mini" id="btn-exit-compare" hidden>退出对比</button>
+      <button class="mini" id="btn-exit-compare" hidden>${t('graph.exitCompare')}</button>
     </div>
     <div class="file-list short" id="file-list"></div>
     <div class="pane-head">
-      <span>差异</span><span class="diff-stat" id="diff-stat"></span>
+      <span>${t('common.diff')}</span><span class="diff-stat" id="diff-stat"></span>
       <span class="flex"></span>
-      <button class="mini" id="btn-open-editor">在编辑器中打开</button>
+      <button class="mini" id="btn-open-editor">${t('common.openEditor')}</button>
     </div>
-    <div class="diff-view" id="diff-view"><div class="diff-empty">选择文件以查看差异</div></div>
+    <div class="diff-view" id="diff-view"><div class="diff-empty">${t('common.selectFileDiff')}</div></div>
   </section>
 </div>
 <div class="ctx-menu" id="ctx-menu" hidden></div>
@@ -270,12 +285,6 @@ export class GraphPanel {
       this.skip = 0;
       void this.reload();
     });
-    for (const id of ['flt-grep', 'flt-path']) {
-      this.must(id).addEventListener('change', () => {
-        this.skip = 0;
-        void this.reload();
-      });
-    }
     this.must('btn-more').addEventListener('click', () => {
       this.skip += this.pageSize;
       void this.reload(true);
@@ -337,22 +346,72 @@ export class GraphPanel {
 
   private bindSearch(): void {
     const input = this.must('flt-search') as HTMLInputElement;
-    input.addEventListener('input', () => {
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    // 客户端范围：在已加载提交里查找并跳转（不隐藏未命中的行，只标记当前命中项）
+    const applyClientFilter = (): void => {
       this.search = input.value;
       this.matchRows = searchMatches(this.nodes, this.search);
       this.searchPos = this.matchRows.length ? 0 : -1;
       this.updateSearchInfo();
       if (this.searchPos >= 0) this.scrollToMatch(this.matchRows[0]!);
       this.renderGraph();
+    };
+    // 服务端范围：把关键词交给 git 重新查（全部历史 / 变更路径）
+    const applyServerFilter = (): void => {
+      this.search = input.value;
+      this.skip = 0;
+      void this.reload();
+    };
+    input.addEventListener('input', () => {
+      if (timer) { clearTimeout(timer); timer = undefined; }
+      if (this.searchScope === 'loaded') {
+        applyClientFilter();
+        return;
+      }
+      // 服务端查询较重：输入停顿 350ms 后再查，避免每敲一个字符就重跑 git log
+      timer = setTimeout(() => { timer = undefined; applyServerFilter(); }, 350);
     });
     input.addEventListener('keydown', (e) => {
       if (e.key === 'Enter') {
         e.preventDefault();
-        this.jumpToMatch(e.shiftKey ? -1 : 1);
+        if (this.searchScope === 'loaded') {
+          this.jumpToMatch(e.shiftKey ? -1 : 1);
+          return;
+        }
+        // 服务端范围：回车立即查询（跳过防抖等待）
+        if (timer) { clearTimeout(timer); timer = undefined; }
+        applyServerFilter();
       }
     });
     this.must('btn-search-next').addEventListener('click', () => this.jumpToMatch(1));
     this.must('btn-search-prev').addEventListener('click', () => this.jumpToMatch(-1));
+  }
+
+  /** 按当前范围同步搜索框的占位符/提示与 ↑↓ 的显隐 */
+  private applySearchScopeUi(): void {
+    const input = this.must('flt-search') as HTMLInputElement;
+    const box = this.must('log-filter-search');
+    const client = this.searchScope === 'loaded';
+    // ↑↓ 与命中计数只对「已加载提交」范围有意义（服务端范围由 git 直接过滤，
+    // 再叠一层客户端匹配计数反而让人误解）
+    box.classList.toggle('client-search', client);
+    if (!client) {
+      // 切到服务端范围后清掉客户端命中状态：否则残留的 searchPos 会把
+      // 某一行的「当前命中」标记留在图上，看起来像误命中
+      this.matchRows = [];
+      this.searchPos = -1;
+      this.updateSearchInfo();
+    }
+    if (client) {
+      input.placeholder = t('graph.searchPlaceholder');
+      input.title = t('graph.searchTip');
+    } else if (this.searchScope === 'history') {
+      input.placeholder = t('graph.grepPlaceholder');
+      input.title = t('graph.scopeTip');
+    } else {
+      input.placeholder = t('common.path');
+      input.title = t('graph.scopeTip');
+    }
   }
 
   private jumpToMatch(dir: 1 | -1): void {
@@ -375,17 +434,17 @@ export class GraphPanel {
 
   private updateSearchInfo(): void {
     const el = this.must('search-info');
-    if (!this.search.trim()) {
+    if (this.searchScope !== 'loaded' || !this.search.trim()) {
       el.textContent = '';
       return;
     }
-    el.textContent = this.matchRows.length ? `${this.searchPos + 1}/${this.matchRows.length}` : '无匹配';
+    el.textContent = this.matchRows.length ? `${this.searchPos + 1}/${this.matchRows.length}` : t('graph.noMatchInfo');
   }
 
   // ---------- 弹出式筛选（分支 / 作者 / 日期） ----------
 
   private bindPopups(): void {
-    const wraps = ['pop-branch-wrap', 'pop-author-wrap', 'pop-date-wrap'];
+    const wraps = ['pop-scope-wrap', 'pop-branch-wrap', 'pop-author-wrap', 'pop-date-wrap'];
     for (const id of wraps) {
       const wrap = this.must(id);
       const btn = wrap.querySelector('.log-filter-pop-btn');
@@ -401,10 +460,12 @@ export class GraphPanel {
       pop.addEventListener('click', (e) => e.stopPropagation());
     }
     document.addEventListener('click', () => this.closeAllPopups());
+    // 搜索范围是静态选项，与数据无关：在这里填一次即可（首次加载失败也能用）
+    this.renderScopePopup();
   }
 
   private closeAllPopups(): void {
-    for (const id of ['pop-branch-wrap', 'pop-author-wrap', 'pop-date-wrap']) {
+    for (const id of ['pop-scope-wrap', 'pop-branch-wrap', 'pop-author-wrap', 'pop-date-wrap']) {
       const wrap = this.must(id);
       const pop = wrap.querySelector('.log-filter-popup') as HTMLElement;
       const btn = wrap.querySelector('.log-filter-pop-btn');
@@ -413,29 +474,54 @@ export class GraphPanel {
     }
   }
 
+  /**
+   * 搜索范围下拉的内容（静态，不必随数据重建）。
+   * 原先三个输入框（已加载查找 / 全部历史按信息 / 变更路径）合并为一个，
+   * 由这个下拉决定输入框的作用范围。
+   */
+  private renderScopePopup(): void {
+    const scopeItems: string[] = [
+      this.popupItem(t('graph.scope.loaded'), 'loaded', this.searchScope === 'loaded', t('graph.scopeTip')),
+      this.popupItem(t('graph.scope.history'), 'history', this.searchScope === 'history', t('graph.scopeTip')),
+      this.popupItem(t('graph.scope.path'), 'path', this.searchScope === 'path', t('graph.scopeTip')),
+    ];
+    this.fillPopup('pop-scope', scopeItems, (value) => {
+      this.searchScope = (value as 'loaded' | 'history' | 'path') || 'loaded';
+      this.must('pop-scope-value').textContent =
+        this.searchScope === 'loaded'
+          ? t('graph.scope.loaded')
+          : this.searchScope === 'history'
+            ? t('graph.scope.history')
+            : t('graph.scope.path');
+      this.applySearchScopeUi();
+      this.skip = 0;
+      void this.reload();
+    });
+  }
+
   /** 重建三个弹窗的内容（reload 后调用：分支/作者列表随数据变化） */
   private renderPopups(): void {
     // 分支：所有分支（清空筛选）+ 本地/远程分组（branch:list 全量数据）
     const locals = this.branchInfos.filter((b) => !b.isRemote);
     const remotes = this.branchInfos.filter((b) => b.isRemote);
     const branchItems: string[] = [
-      this.popupItem('所有分支', '', !this.branchFilter, '显示所有分支的提交'),
+      this.popupItem(t('graph.allBranches'), '', !this.branchFilter, t('graph.popup.allBranchesTip')),
     ];
     if (locals.length) {
-      branchItems.push('<div class="log-filter-popup-section">本地分支</div>');
+      branchItems.push(`<div class="log-filter-popup-section">${t('graph.popup.local')}</div>`);
       for (const b of locals) {
         branchItems.push(this.popupItem(b.shortName || b.name, b.name, this.branchFilter === b.name, b.name));
       }
     }
     if (remotes.length) {
-      branchItems.push('<div class="log-filter-popup-section">远程分支</div>');
+      branchItems.push(`<div class="log-filter-popup-section">${t('graph.popup.remote')}</div>`);
       for (const b of remotes) {
         branchItems.push(this.popupItem(b.name, b.name, this.branchFilter === b.name, b.name));
       }
     }
     this.fillPopup('pop-branch', branchItems, (value) => {
       this.branchFilter = value || undefined;
-      this.must('pop-branch-value').textContent = value || '所有分支';
+      this.must('pop-branch-value').textContent = value || t('graph.allBranches');
       this.skip = 0;
       void this.reload();
     });
@@ -447,13 +533,13 @@ export class GraphPanel {
       if (a && !authors.includes(a)) authors.push(a);
     }
     authors.sort((a, b) => a.localeCompare(b, 'zh-Hans-CN'));
-    const authorItems: string[] = [this.popupItem('所有用户', '', !this.authorFilter, '显示所有作者的提交')];
+    const authorItems: string[] = [this.popupItem(t('graph.allUsers'), '', !this.authorFilter, t('graph.popup.allUsersTip'))];
     for (const a of authors) {
       authorItems.push(this.popupItem(a, a, this.authorFilter === a, a));
     }
     this.fillPopup('pop-author', authorItems, (value) => {
       this.authorFilter = value || undefined;
-      this.must('pop-author-value').textContent = value || '所有用户';
+      this.must('pop-author-value').textContent = value || t('graph.allUsers');
       this.skip = 0;
       void this.reload();
     });
@@ -465,7 +551,7 @@ export class GraphPanel {
     this.fillPopup('pop-date', dateItems, (value) => {
       this.since = value || undefined;
       const preset = DATE_PRESETS.find((p) => (p.value ?? '') === value);
-      this.must('pop-date-value').textContent = preset?.label ?? '全部时间';
+      this.must('pop-date-value').textContent = preset?.label ?? t('graph.allTime');
       this.skip = 0;
       void this.reload();
     });
@@ -632,8 +718,8 @@ export class GraphPanel {
           all: !this.branchFilter,
           noMerges: this.noMerges,
           author: this.authorFilter,
-          grep: (this.must('flt-grep') as HTMLInputElement).value.trim() || undefined,
-          path: (this.must('flt-path') as HTMLInputElement).value.trim() || undefined,
+          grep: this.searchScope === 'history' ? this.search.trim() || undefined : undefined,
+          path: this.searchScope === 'path' ? this.search.trim() || undefined : undefined,
           branch: this.branchFilter,
           since: this.since,
         }),
@@ -647,16 +733,16 @@ export class GraphPanel {
       }
       for (const c of commits) this.commits.set(c.hash, c);
       // 列表变化后重算搜索匹配（保持计数与跳转有效）
-      if (this.search.trim()) {
+      if (this.searchScope === 'loaded' && this.search.trim()) {
         this.matchRows = searchMatches(this.nodes, this.search);
         this.searchPos = this.matchRows.length ? 0 : -1;
         this.updateSearchInfo();
       }
       this.renderGraph();
       this.renderPopups();
-      this.must('page-info').textContent = `${this.nodes.length} 个提交`;
+      this.must('page-info').textContent = t('graph.commitsCount', this.nodes.length);
     } catch (err) {
-      this.rowsEl.innerHTML = `<div class="gp-empty">读取失败：${this.esc(String(err))}</div>`;
+      this.rowsEl.innerHTML = `<div class="gp-empty">${t('common.readFailed', this.esc(String(err)))}</div>`;
     }
   }
 
@@ -715,8 +801,8 @@ export class GraphPanel {
       const filtered = !!(this.branchFilter || this.authorFilter || this.since || this.noMerges);
       this.rowsEl.innerHTML = `<div class="gp-empty">${
         filtered
-          ? '没有符合当前筛选条件的提交'
-          : '该仓库还没有提交'
+          ? t('graph.noMatchCommits')
+          : t('graph.noCommits')
       }</div>`;
       return;
     }
@@ -769,7 +855,7 @@ export class GraphPanel {
       )
       .join('');
     const collapsedHtml = collapsed.length
-      ? `<span class="branch-label branch-label-collapsed" data-collapsed="${this.escAttr(JSON.stringify(collapsed))}" title="还有 ${collapsed.length} 个分支：${this.escAttr(collapsed.join('、'))}" role="button" tabindex="0">+${collapsed.length}</span>`
+      ? `<span class="branch-label branch-label-collapsed" data-collapsed="${this.escAttr(JSON.stringify(collapsed))}" title="${t('graph.moreBranches', collapsed.length, this.escAttr(collapsed.join('、')))}" role="button" tabindex="0">+${collapsed.length}</span>`
       : '';
     const dateFull = new Date(c.authorDate).toLocaleString();
     return `<div class="commit-row${selected ? ' selected' : ''}${hit ? ' hit' : ''}" data-hash="${c.hash}" data-row="${row}" role="option" tabindex="0" aria-selected="${selected}">
@@ -797,20 +883,20 @@ export class GraphPanel {
       ? `<div class="refs">${commit.refs.map((r) => `<span class="ref">${this.esc(r)}</span>`).join('')}</div>`
       : '';
     this.detailEl.innerHTML = `
-<div class="detail-row"><span class="k">提交</span><span class="v mono">${commit.hash}</span></div>
-<div class="detail-row"><span class="k">作者</span><span class="v">${this.esc(commit.author)} &lt;${this.esc(commit.authorEmail)}&gt;</span></div>
-<div class="detail-row"><span class="k">日期</span><span class="v">${date.toLocaleString()}</span></div>
-<div class="detail-row"><span class="k"> parents </span><span class="v mono">${commit.parents.map((p) => p.slice(0, 7)).join(' ') || '（无）'}</span></div>
+<div class="detail-row"><span class="k">${t('commit.btn.commit')}</span><span class="v mono">${commit.hash}</span></div>
+<div class="detail-row"><span class="k">${t('log.authorPlaceholder')}</span><span class="v">${this.esc(commit.author)} &lt;${this.esc(commit.authorEmail)}&gt;</span></div>
+<div class="detail-row"><span class="k">${t('graph.col.date')}</span><span class="v">${date.toLocaleString()}</span></div>
+<div class="detail-row"><span class="k"> parents </span><span class="v mono">${commit.parents.map((p) => p.slice(0, 7)).join(' ') || t('common.none')}</span></div>
 ${refs}
 <div class="detail-msg">${this.esc(commit.body || commit.subject)}</div>
 <div class="detail-actions">
-  <button class="mini" data-act="checkout">检出</button>
-  <button class="mini" data-act="branch">建分支</button>
-  <button class="mini" data-act="tag">打标签</button>
-  <button class="mini" data-act="merge">合并到此</button>
-  <button class="mini" data-act="cherry">拣选</button>
-  <button class="mini" data-act="reset">重置到此处</button>
-  <button class="mini" data-act="revert">还原</button>
+  <button class="mini" data-act="checkout">${t('branches.checkoutOp')}</button>
+  <button class="mini" data-act="branch">${t('graph.act.branch')}</button>
+  <button class="mini" data-act="tag">${t('graph.act.tag')}</button>
+  <button class="mini" data-act="merge">${t('graph.act.merge')}</button>
+  <button class="mini" data-act="cherry">${t('graph.act.cherry')}</button>
+  <button class="mini" data-act="reset">${t('graph.act.reset')}</button>
+  <button class="mini" data-act="revert">${t('graph.act.revert')}</button>
 </div>
 `;
     this.detailEl.querySelectorAll<HTMLButtonElement>('button[data-act]').forEach((btn) => {
@@ -832,7 +918,7 @@ ${refs}
     const commit = this.commits.get(hash);
     if (!commit) return;
     if (isHeadCommit(commit)) {
-      toast('该提交就是当前分支（HEAD），无需对比');
+      toast(t('graph.compareSelf'));
       return;
     }
     const ref = pickCompareRef(commit);
@@ -841,9 +927,9 @@ ${refs}
     this.selectedHash = undefined;
     this.currentFile = undefined;
     this.renderGraph();
-    this.must('commit-title').textContent = `对比：${label} ↔ 当前分支 (HEAD)`;
-    this.detailEl.innerHTML = `<div class="compare-banner">对比范围 <span class="mono">HEAD..${this.esc(ref)}</span>：从当前分支到 ${this.esc(label)} 的全部差异。<br>点击下方文件查看逐文件差异；点击图中任意节点退出对比。</div>`;
-    this.must('files-title').textContent = '变更文件（对比）';
+    this.must('commit-title').textContent = t('graph.compareTitle', label);
+    this.detailEl.innerHTML = `<div class="compare-banner">${t('graph.compareBanner', this.esc(ref), this.esc(label))}</div>`;
+    this.must('files-title').textContent = t('graph.filesTitleCompare');
     this.must('btn-exit-compare').hidden = false;
     try {
       this.files = await this.client.send('diff:files', {
@@ -852,7 +938,7 @@ ${refs}
       });
     } catch (err) {
       this.files = [];
-      toast(`读取对比文件失败：${String(err)}`, true);
+      toast(t('graph.compareFilesFailed', String(err)), true);
     }
     this.renderFiles();
   }
@@ -861,7 +947,7 @@ ${refs}
     if (!this.compare) return;
     this.compare = undefined;
     this.must('btn-exit-compare').hidden = true;
-    this.must('files-title').textContent = '变更文件';
+    this.must('files-title').textContent = t('common.files');
   }
 
   private exitCompare(): void {
@@ -873,8 +959,8 @@ ${refs}
     }
     this.files = [];
     this.currentFile = undefined;
-    this.must('commit-title').textContent = '提交详情';
-    this.detailEl.innerHTML = '<div class="empty">点击图中节点查看详情</div>';
+    this.must('commit-title').textContent = t('graph.detailTitle');
+    this.detailEl.innerHTML = `<div class="empty">${t('graph.detailHint')}</div>`;
     this.renderFiles();
     void this.showDiff();
   }
@@ -883,14 +969,14 @@ ${refs}
     this.must('file-count').textContent = `（${this.files.length}）`;
     if (!this.files.length) {
       this.filesEl.innerHTML = this.compare
-        ? '<div class="empty">两个分支内容一致（无差异文件）</div>'
-        : '<div class="empty">该提交没有文件变更</div>';
+        ? `<div class="empty">${t('graph.sameContent')}</div>`
+        : `<div class="empty">${t('graph.noFileChanges')}</div>`;
       return;
     }
-    const badge: Record<string, string> = { A: '新增', M: '修改', D: '删除', R: '重命名', C: '复制', T: '类型', U: '冲突' };
+    const badge: Record<string, string> = { A: t('status.added'), M: t('status.modified'), D: t('status.deleted'), R: t('branches.renameOp'), C: t('status.copied'), T: t('status.type'), U: t('status.conflict') };
     this.filesEl.innerHTML = this.files
       .map((f) => {
-        const stat = f.isBinary ? '二进制' : `+${f.additions} -${f.deletions}`;
+        const stat = f.isBinary ? t('common.binary') : `+${f.additions} -${f.deletions}`;
         return `<div class="file-row${this.currentFile?.path === f.path ? ' active' : ''}" data-path="${this.escAttr(f.path)}" title="${this.escAttr(f.path)}">
   <span class="badge st-${f.status === 'A' ? 'staged' : f.status === 'D' ? 'untracked' : 'modified'}" title="${this.escAttr(badge[f.status] ?? f.status)}">${f.status}</span>
   <span class="file-name">${this.esc(f.path)}</span>
@@ -914,7 +1000,7 @@ ${refs}
         ? `${this.selectedHash}^..${this.selectedHash}`
         : undefined;
     if (!this.currentFile || !range) {
-      this.diffEl.innerHTML = '<div class="diff-empty">选择文件以查看差异</div>';
+      this.diffEl.innerHTML = `<div class="diff-empty">${t('common.selectFileDiff')}</div>`;
       return;
     }
     try {
@@ -939,7 +1025,7 @@ ${refs}
       const stat = patchStat(patch);
       this.statEl.textContent = stat.additions || stat.deletions ? `+${stat.additions} -${stat.deletions}` : '';
     } catch (err) {
-      this.diffEl.innerHTML = `<div class="diff-empty">无法读取差异：${this.esc(String(err))}</div>`;
+      this.diffEl.innerHTML = `<div class="diff-empty">${t('common.diffFailed', this.esc(String(err)))}</div>`;
     }
   }
 
@@ -948,19 +1034,19 @@ ${refs}
   private showContextMenu(x: number, y: number, hash: string): void {
     const commit = this.commits.get(hash);
     const items: Array<{ label: string; action: () => void }> = [
-      { label: '检出 (Checkout)', action: () => void this.runAction('checkout', hash) },
+      { label: t('branches.menu.checkout'), action: () => void this.runAction('checkout', hash) },
     ];
     // 非 HEAD 提交才提供对比（HEAD 与自身对比无意义）
     if (commit && !isHeadCommit(commit)) {
-      items.push({ label: '与当前分支对比…', action: () => void this.startCompare(hash) });
+      items.push({ label: t('cm.compare'), action: () => void this.startCompare(hash) });
     }
     items.push(
-      { label: '在此创建分支…', action: () => void this.runAction('branch', hash) },
-      { label: '在此创建标签…', action: () => void this.runAction('tag', hash) },
-      { label: '合并到此 (Merge)', action: () => void this.runAction('merge', hash) },
-      { label: '拣选到当前分支 (Cherry-pick)', action: () => void this.runAction('cherry', hash) },
-      { label: '重置到此处 (Reset)', action: () => void this.runAction('reset', hash) },
-      { label: '还原此提交 (Revert)', action: () => void this.runAction('revert', hash) },
+      { label: t('cm.branchHere'), action: () => void this.runAction('branch', hash) },
+      { label: t('cm.tagHere'), action: () => void this.runAction('tag', hash) },
+      { label: t('cm.merge'), action: () => void this.runAction('merge', hash) },
+      { label: t('cm.cherry'), action: () => void this.runAction('cherry', hash) },
+      { label: t('cm.reset'), action: () => void this.runAction('reset', hash) },
+      { label: t('cm.revert'), action: () => void this.runAction('revert', hash) },
     );
     showMenuAt(
       this.must('ctx-menu'),
@@ -977,10 +1063,10 @@ ${refs}
       switch (act) {
         case 'checkout':
           await this.client.send('branch:checkout', { repoRoot: this.repoRoot, ref: hash });
-          toast(`已检出 ${short}（分离头指针）`);
+          toast(t('cm.checkedOutDetached', short));
           break;
         case 'branch': {
-          const name = await promptValue('新分支名称：', `branch-${short}`);
+          const name = await promptValue(t('branches.newBranchPrompt'), `branch-${short}`);
           if (name) {
             await this.client.send('branch:create', {
               repoRoot: this.repoRoot,
@@ -988,46 +1074,46 @@ ${refs}
               ref: hash,
               checkout: true,
             });
-            toast(`已创建并切换到 ${name}`);
+            toast(t('branches.createdSwitched', name));
           }
           break;
         }
         case 'tag': {
-          const name = await promptValue('标签名称：', `v-${short}`);
+          const name = await promptValue(t('cm.tagPrompt'), `v-${short}`);
           if (name) {
             await this.client.send('tag:create', { repoRoot: this.repoRoot, name, ref: hash });
-            toast(`已创建标签 ${name}`);
+            toast(t('cm.createdTag', name));
           }
           break;
         }
         case 'merge':
-          if (await this.confirm(`确定将 ${short} 合并到当前分支？`)) {
+          if (await this.confirm(t('graph.mergeConfirm', short))) {
             await this.client.send('merge:run', { repoRoot: this.repoRoot, ref: hash });
-            toast('合并完成');
+            toast(t('cm.mergeDone'));
           }
           break;
         case 'cherry':
           await this.client.send('cherryPick:run', { repoRoot: this.repoRoot, hashes: [hash] });
-          toast('拣选完成');
+          toast(t('cm.cherryDone'));
           break;
         case 'reset': {
-          const mode = await this.choose('重置模式', ['soft（保留暂存区）', 'mixed（默认，保留工作区）', 'hard（全部丢弃，危险）']);
+          const mode = await this.choose(t('cm.resetTitle'), [t('cm.resetSoft'), t('cm.resetMixed'), t('cm.resetHard')]);
           if (mode) {
             const m = mode.startsWith('soft') ? 'soft' : mode.startsWith('hard') ? 'hard' : 'mixed';
-            if (m === 'hard' && !(await this.confirm('hard 重置将丢弃所有本地修改，确定？'))) return;
+            if (m === 'hard' && !(await this.confirm(t('cm.resetHardConfirm')))) return;
             await this.client.send('reset:run', { repoRoot: this.repoRoot, ref: hash, mode: m });
-            toast('重置完成');
+            toast(t('cm.resetDone'));
           }
           break;
         }
         case 'revert':
           await this.client.send('revert:run', { repoRoot: this.repoRoot, hash });
-          toast('还原完成');
+          toast(t('cm.revertDone'));
           break;
       }
       void this.reload();
     } catch (err) {
-      toast(`操作失败：${String(err)}`, true);
+      toast(t('common.opFailed', String(err)), true);
     }
   }
 

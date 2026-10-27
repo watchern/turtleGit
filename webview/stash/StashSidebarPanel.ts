@@ -1,4 +1,5 @@
 import { RpcClient } from '../bridge';
+import { t } from '../i18n';
 import { toast, promptValue, escapeHtml } from '../ui/dialogs';
 import { StashEntry } from '../../shared/protocol';
 
@@ -28,13 +29,13 @@ export class StashSidebarPanel {
     this.el.innerHTML = `
 <div class="stash-sidebar">
   <div class="ss-head">
-    <button class="primary" id="ss-push">保存 Stash…</button>
-    <button id="ss-refresh">刷新</button>
+    <button class="primary" id="ss-push">${t('stash.save')}</button>
+    <button id="ss-refresh">${t('common.refresh')}</button>
     <span class="flex"></span>
     <span class="ss-count" id="ss-count"></span>
   </div>
   <div class="ss-list" id="ss-list"></div>
-  <div class="ss-hint">点击行在主窗口查看各文件改动</div>
+  <div class="ss-hint">${t('stash.hint')}</div>
 </div>`;
     this.listEl = this.must('ss-list');
 
@@ -56,7 +57,7 @@ export class StashSidebarPanel {
     try {
       this.stashes = await this.client.send('stash:list', { repoRoot: this.repoRoot });
     } catch (err) {
-      this.listEl.innerHTML = `<div class="empty">读取失败：${this.esc(String(err))}</div>`;
+      this.listEl.innerHTML = `<div class="empty">${t('common.readFailed', String(err))}</div>`;
       return;
     }
     this.renderList();
@@ -65,17 +66,17 @@ export class StashSidebarPanel {
   private renderList(): void {
     this.must('ss-count').textContent = `（${this.stashes.length}）`;
     if (!this.stashes.length) {
-      this.listEl.innerHTML = '<div class="empty">没有 stash</div>';
+      this.listEl.innerHTML = `<div class="empty">${t('stash.noStash')}</div>`;
       return;
     }
     this.listEl.innerHTML = this.stashes
       .map(
-        (s) => `<div class="ss-row" data-ref="${this.escAttr(s.ref)}" title="点击在主窗口查看各文件改动">
+        (s) => `<div class="ss-row" data-ref="${this.escAttr(s.ref)}" title="${t('stash.hint')}">
   <div class="ss-line1"><span class="ss-hash">${this.esc(s.ref)}</span><span class="ss-commit">${this.esc(s.commit.slice(0, 7))}</span><span class="ss-msg">${this.esc(s.message)}</span></div>
   <div class="ss-acts">
-    <button class="mini" data-act="apply">应用</button>
-    <button class="mini" data-act="pop">恢复</button>
-    <button class="mini danger" data-act="drop">删除</button>
+    <button class="mini" data-act="apply">${t('stash.act.apply')}</button>
+    <button class="mini" data-act="pop">${t('stash.act.pop')}</button>
+    <button class="mini danger" data-act="drop">${t('stash.act.drop')}</button>
   </div>
 </div>`,
       )
@@ -97,23 +98,23 @@ export class StashSidebarPanel {
   }
 
   private async push(): Promise<void> {
-    const message = await promptValue('Stash 消息（可留空）：', '');
+    const message = await promptValue(t('stash.prompt'), '');
     try {
       await this.client.send('stash:push', {
         repoRoot: this.repoRoot,
         message: message?.trim() || undefined,
       });
-      toast('已保存 stash');
+      toast(t('stash.saved'));
       await this.reload();
     } catch (err) {
-      toast(`保存失败：${String(err)}`, true);
+      toast(t('stash.saveFailed', String(err)), true);
     }
   }
 
   private async run(op: 'apply' | 'pop' | 'drop', ref: string): Promise<void> {
     const target = this.stashes.find((s) => s.ref === ref);
     if (!target) return;
-    if (op === 'drop' && !(await this.client.send('ui:confirm', { text: `确定删除 ${ref}？` }))) {
+    if (op === 'drop' && !(await this.client.send('ui:confirm', { text: t('stash.confirmDelete', ref) }))) {
       return;
     }
     try {
@@ -121,10 +122,10 @@ export class StashSidebarPanel {
         repoRoot: this.repoRoot,
         index: target.index,
       } as never);
-      toast(`已${op === 'apply' ? '应用' : op === 'pop' ? '恢复' : '删除'} ${ref}`);
+      toast(t(op === 'apply' ? 'stash.applied' : op === 'pop' ? 'stash.popped' : 'stash.dropped', ref));
       await this.reload();
     } catch (err) {
-      toast(`操作失败：${String(err)}`, true);
+      toast(t('common.opFailed', String(err)), true);
     }
   }
 

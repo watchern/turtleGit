@@ -1,5 +1,7 @@
 /** Webview 内共享的轻量 UI 辅助（toast / prompt） */
 
+import { t } from '../i18n';
+
 export function toast(text: string, isError = false): void {
   const el = document.createElement('div');
   el.className = 'toast' + (isError ? ' error' : '');
@@ -27,8 +29,8 @@ export function promptValue(text: string, initial = ''): Promise<string | null> 
   <div class="modal-text"></div>
   <input class="modal-input" type="text" spellcheck="false">
   <div class="modal-btns">
-    <button class="mini" data-act="cancel">取消</button>
-    <button class="mini primary" data-act="ok">确定</button>
+    <button class="mini" data-act="cancel">${t('common.cancel')}</button>
+    <button class="mini primary" data-act="ok">${t('common.ok')}</button>
   </div>
 </div>`;
     (overlay.querySelector('.modal-text') as HTMLElement).textContent = text;
@@ -85,8 +87,8 @@ export function promptFields(
       .join('')}
   </div>
   <div class="modal-btns">
-    <button class="mini" data-act="cancel">取消</button>
-    <button class="mini primary" data-act="ok">确定</button>
+    <button class="mini" data-act="cancel">${t('common.cancel')}</button>
+    <button class="mini primary" data-act="ok">${t('common.ok')}</button>
   </div>
 </div>`;
     (overlay.querySelector('.modal-text') as HTMLElement).textContent = title;

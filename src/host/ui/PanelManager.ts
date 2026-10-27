@@ -9,6 +9,7 @@ import { RpcRouter } from '../rpc/Router';
 import { absPathIn, relPathIn, normalizeFsPath } from '../core/paths';
 import { TgBlobProvider } from './GitBlobProvider';
 import { TGIT_BLOB_SCHEME, blobUriQuery } from '../core/blobUri';
+import * as i18n from '../i18n';
 import {
   RpcRequestEnvelope,
   WebviewInit,
@@ -18,16 +19,11 @@ import {
   SidebarTab,
 } from '../../../shared/protocol';
 
-const VIEW_TITLES: Record<WebviewView, string> = {
-  commit: '提交 (Commit) - TurtleGit',
-  sidebar: 'TurtleGit',
-  log: '显示日志 (Show Log) - TurtleGit',
-  diff: '比较差异 (Diff) - TurtleGit',
-  graph: '版本分支图 (Revision Graph) - TurtleGit',
-  compare: '分支对比 (Compare Branches) - TurtleGit',
-  stash: '存储 (Stash) - TurtleGit',
-  blame: '追溯 (Blame) - TurtleGit',
-};
+/** 面板标题按当前语言取（语言切换后重新打开面板才生效——标题在创建时已固定） */
+function viewTitle(view: WebviewView): string {
+  if (view === 'sidebar') return 'TurtleGit';
+  return i18n.t(`title.${view}`);
+}
 
 /**
  * Webview 面板生命周期管理中心。
@@ -93,7 +89,7 @@ export class PanelManager {
     );
     const repoRoot = await this.resolveRepoRoot(targets[0]);
     if (!repoRoot) {
-      vscode.window.showWarningMessage('TurtleGit: 所选目标不在 git 仓库中。');
+      vscode.window.showWarningMessage(i18n.t('host.notInRepo'));
       return;
     }
     const selected = targets
@@ -110,7 +106,7 @@ export class PanelManager {
     );
     const repoRoot = await this.resolveRepoRoot(targets[0]);
     if (!repoRoot) {
-      vscode.window.showWarningMessage('TurtleGit: 所选目标不在 git 仓库中。');
+      vscode.window.showWarningMessage(i18n.t('host.notInRepo'));
       return;
     }
     const filterPath = targets[0] ? relPathIn(repoRoot, targets[0]) : undefined;
@@ -125,7 +121,7 @@ export class PanelManager {
   async openDiff(fsPath: string, staged = false): Promise<void> {
     const repoRoot = await this.resolveRepoRoot(fsPath);
     if (!repoRoot) {
-      vscode.window.showWarningMessage('TurtleGit: 所选目标不在 git 仓库中。');
+      vscode.window.showWarningMessage(i18n.t('host.notInRepo'));
       return;
     }
     const rel = relPathIn(repoRoot, fsPath);
@@ -144,7 +140,7 @@ export class PanelManager {
   async openGraph(fsPath?: string): Promise<void> {
     const repoRoot = await this.resolveRepoRoot(fsPath);
     if (!repoRoot) {
-      vscode.window.showWarningMessage('TurtleGit: 所选目标不在 git 仓库中。');
+      vscode.window.showWarningMessage(i18n.t('host.notInRepo'));
       return;
     }
     this.openPanel('graph', repoRoot, {}, 'embedded');
@@ -162,7 +158,7 @@ export class PanelManager {
   async openStash(fsPath?: string): Promise<void> {
     const repoRoot = await this.resolveRepoRoot(fsPath);
     if (!repoRoot) {
-      vscode.window.showWarningMessage('TurtleGit: 所选目标不在 git 仓库中。');
+      vscode.window.showWarningMessage(i18n.t('host.notInRepo'));
       return;
     }
     this.openPanel('stash', repoRoot, {}, 'embedded');
@@ -180,12 +176,12 @@ export class PanelManager {
   async openBlame(fsPath: string): Promise<void> {
     const repoRoot = await this.resolveRepoRoot(fsPath);
     if (!repoRoot) {
-      vscode.window.showWarningMessage('TurtleGit: 所选目标不在 git 仓库中。');
+      vscode.window.showWarningMessage(i18n.t('host.notInRepo'));
       return;
     }
     const rel = relPathIn(repoRoot, fsPath);
     if (!rel) {
-      vscode.window.showWarningMessage('TurtleGit: 无法解析文件路径。');
+      vscode.window.showWarningMessage(i18n.t('host.cannotResolvePath'));
       return;
     }
     this.openPanel('blame', repoRoot, { paths: [rel] }, 'embedded');
@@ -297,13 +293,13 @@ export class PanelManager {
     const nonce = createNonce();
     const params = Buffer.from(JSON.stringify(init), 'utf8').toString('base64url');
     return `<!DOCTYPE html>
-<html lang="zh-CN">
+<html lang="${i18n.getLocale() === 'en' ? 'en' : i18n.getLocale() === 'zh-TW' ? 'zh-TW' : 'zh-CN'}">
 <head>
 <meta charset="UTF-8">
 <meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src ${csp} data:; style-src ${csp} 'unsafe-inline'; script-src 'nonce-${nonce}'; font-src ${csp};">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <link rel="stylesheet" href="${cssUri}">
-<title>${VIEW_TITLES[view]}</title>
+<title>${viewTitle(view)}</title>
 </head>
 <body>
 <div id="app" data-view="${view}" data-params="${params}"></div>
@@ -318,12 +314,12 @@ export class PanelManager {
   async diffNative(fsPath: string): Promise<void> {
     const repoRoot = await this.resolveRepoRoot(fsPath);
     if (!repoRoot) {
-      vscode.window.showWarningMessage('TurtleGit: 所选目标不在 git 仓库中。');
+      vscode.window.showWarningMessage(i18n.t('host.notInRepo'));
       return;
     }
     const rel = relPathIn(repoRoot, fsPath);
     if (!rel) {
-      vscode.window.showWarningMessage('TurtleGit: 无法解析文件路径。');
+      vscode.window.showWarningMessage(i18n.t('host.cannotResolvePath'));
       return;
     }
     await this.openNativeDiff(undefined, repoRoot, rel, false);
@@ -357,7 +353,7 @@ export class PanelManager {
     await vscode.window.withProgress(
       {
         location: vscode.ProgressLocation.Notification,
-        title: 'TurtleGit: 正在放弃修改…',
+        title: i18n.t('host.discardProgress'),
         cancellable: false,
       },
       () => this.git.discard(repoRoot, paths),
@@ -381,17 +377,17 @@ export class PanelManager {
 
   /** 拉取（fetch + merge）。返回可读摘要。 */
   async pull(repoRoot: string): Promise<string> {
-    const r = await this.withNotify('正在拉取…', () => this.ops.pull(repoRoot));
+    const r = await this.withNotify(i18n.t('host.pulling'), () => this.ops.pull(repoRoot));
     await this.store.touch(repoRoot);
-    return summarizeGitOutput(r.stdout) || '已是最新';
+    return summarizeGitOutput(r.stdout) || i18n.t('host.upToDate');
   }
 
   /** 推送当前分支到上游（无上游时自动 -u 建立跟踪）。返回可读摘要。 */
   async push(repoRoot: string): Promise<string> {
-    const r = await this.withNotify('正在推送…', () => this.ops.push(repoRoot));
+    const r = await this.withNotify(i18n.t('host.pushing'), () => this.ops.push(repoRoot));
     await this.store.touch(repoRoot);
     // push 的进度信息主要在 stderr
-    return summarizeGitOutput(`${r.stdout}\n${r.stderr}`) || '推送完成';
+    return summarizeGitOutput(`${r.stdout}\n${r.stderr}`) || i18n.t('host.pushComplete');
   }
 
   // ---------- 面板管理 ----------
@@ -425,7 +421,7 @@ export class PanelManager {
 
     const panel = vscode.window.createWebviewPanel(
       'turtlegit.' + view,
-      VIEW_TITLES[view],
+      viewTitle(view),
       { viewColumn: vscode.ViewColumn.Active, preserveFocus: false },
       {
         enableScripts: true,
@@ -478,6 +474,8 @@ export class PanelManager {
     mode: PanelMode = this.panelMode,
     sidebar = false,
   ): WebviewInit {
+    // 每次打开/切换仓库都重新确定语言（使「设置变更」「显示语言变更」即时反映到新面板）
+    i18n.refreshLocale();
     return {
       view,
       repoRoot,
@@ -491,7 +489,24 @@ export class PanelManager {
       floating: this.floatingViews.has(view),
       sidebar,
       tab: opts.tab,
+      locale: i18n.getLocale(),
+      strings: i18n.buildStrings(),
     };
+  }
+
+  /**
+   * 语言设置变更后调用：重新确定语言，并向所有已打开的面板重推 init，
+   * 让 webview 用新字典重挂载（标题在创建时固定，故仍需重新 create；此处走 init 推送重挂载）。
+   */
+  onLocaleChanged(): void {
+    const changed = i18n.refreshLocale();
+    if (!changed) return;
+    for (const [view, panel] of this.panels) {
+      const repoRoot = this.panelRepo.get(view);
+      if (!repoRoot) continue;
+      const init = this.buildInit(view, repoRoot, {}, this.panelMode);
+      void panel.webview.postMessage({ kind: 'event', type: 'init', payload: init });
+    }
   }
 
   /**
@@ -533,13 +548,13 @@ export class PanelManager {
       // 持有面板的宿主：仅当确有浮动面板、且主窗口未聚焦时执行。
       // 主窗口聚焦时执行会把主窗口自己的编辑器组合并为一个，压平用户布局。
       if (!this.floatingViews.size || vscode.window.state.focused) {
-        vscode.window.showInformationMessage('TurtleGit: 请在浮动窗口中执行收回操作。');
+        vscode.window.showInformationMessage(i18n.t('host.restoreFromFloating'));
         return;
       }
       await vscode.commands.executeCommand('workbench.action.restoreEditorsToMainWindow');
       this.floatingViews.clear();
     } catch {
-      vscode.window.showInformationMessage('TurtleGit: 当前窗口无法收回主窗口。');
+      vscode.window.showInformationMessage(i18n.t('host.restoreFailed'));
     }
   }
 
@@ -586,7 +601,7 @@ export class PanelManager {
       await open();
     } catch (err) {
       const detail = err instanceof Error ? err.message : String(err);
-      vscode.window.showErrorMessage(`TurtleGit: 无法打开编辑器：${detail}`);
+      vscode.window.showErrorMessage(i18n.t('host.openEditorFailed', detail));
     }
   }
 
@@ -615,7 +630,7 @@ export class PanelManager {
       await vscode.window.withProgress(
         {
           location: vscode.ProgressLocation.Notification,
-          title: 'TurtleGit: 正在放弃修改…',
+          title: i18n.t('host.discardProgress'),
           cancellable: false,
         },
         () => this.git.discard(repoRoot, paths),
@@ -648,15 +663,16 @@ export class PanelManager {
     this.router.register('diff:files', ({ repoRoot, range }) => this.git.rangeFiles(repoRoot, range));
 
     this.router.register('ui:confirm', async ({ text }) => {
-      const answer = await vscode.window.showWarningMessage(text, { modal: true }, '确定');
-      return answer === '确定';
+      const confirmLabel = i18n.t('common.confirm');
+      const answer = await vscode.window.showWarningMessage(text, { modal: true }, confirmLabel);
+      return answer === confirmLabel;
     });
 
     this.router.register('commit:create', async (req) => {
       const result = await vscode.window.withProgress(
         {
           location: vscode.ProgressLocation.Notification,
-          title: 'TurtleGit: 正在提交…',
+          title: i18n.t('host.committing'),
           cancellable: false,
         },
         () => this.git.commit(req),
@@ -678,80 +694,81 @@ export class PanelManager {
     // ---- 分支操作（BranchOps） ----
     this.router.register('branch:list', ({ repoRoot }) => this.ops.branches(repoRoot));
     this.router.register('branch:create', async ({ repoRoot, name, ref, checkout }) => {
-      await this.withNotify(`正在创建分支 ${name}…`, () =>
+      await this.withNotify(i18n.t('host.creatingBranch', name), () =>
         this.ops.createBranch(repoRoot, name, ref, checkout),
       );
       await this.store.touch(repoRoot);
     });
     this.router.register('branch:delete', async ({ repoRoot, name, force }) => {
-      await this.withNotify(`正在删除分支 ${name}…`, () =>
+      await this.withNotify(i18n.t('host.deletingBranch', name), () =>
         this.ops.deleteBranch(repoRoot, name, force),
       );
       await this.store.touch(repoRoot);
     });
     this.router.register('branch:rename', async ({ repoRoot, oldName, newName }) => {
-      await this.withNotify('正在重命名分支…', () =>
+      await this.withNotify(i18n.t('host.renamingBranch'), () =>
         this.ops.renameBranch(repoRoot, oldName, newName),
       );
       await this.store.touch(repoRoot);
     });
     this.router.register('branch:checkout', async ({ repoRoot, ref }) => {
-      await this.withNotify(`正在切换到 ${ref}…`, () => this.ops.checkout(repoRoot, ref));
+      await this.withNotify(i18n.t('host.switching', ref), () => this.ops.checkout(repoRoot, ref));
       await this.store.touch(repoRoot);
     });
     this.router.register('branch:checkoutRemote', async ({ repoRoot, name }) => {
-      const r = await this.withNotify(`正在检出 ${name}…`, () =>
+      const r = await this.withNotify(i18n.t('host.checkingOut', name), () =>
         this.ops.checkoutRemote(repoRoot, name),
       );
       await this.store.touch(repoRoot);
       return r;
     });
     this.router.register('branch:deleteRemote', async ({ repoRoot, remote, branch }) => {
-      await this.withNotify(`正在删除远程分支 ${remote}/${branch}…`, () =>
+      await this.withNotify(i18n.t('host.deletingRemoteBranch', remote, branch), () =>
         this.ops.deleteRemoteBranch(repoRoot, remote, branch),
       );
       await this.store.touch(repoRoot);
     });
     this.router.register('remote:list', ({ repoRoot }) => this.ops.remotes(repoRoot));
     this.router.register('remote:add', async ({ repoRoot, name, url }) => {
-      await this.withNotify(`正在添加远程 ${name}…`, () =>
+      await this.withNotify(i18n.t('host.addingRemote', name), () =>
         this.ops.addRemote(repoRoot, name, url),
       );
       await this.store.touch(repoRoot);
     });
     this.router.register('remote:remove', async ({ repoRoot, name }) => {
-      await this.withNotify(`正在删除远程 ${name}…`, () => this.ops.removeRemote(repoRoot, name));
+      await this.withNotify(i18n.t('host.removingRemote', name), () => this.ops.removeRemote(repoRoot, name));
       await this.store.touch(repoRoot);
     });
     this.router.register('remote:setUrl', async ({ repoRoot, name, url, push }) => {
-      await this.withNotify(`正在修改 ${name} 的${push ? '推送' : '拉取'}地址…`, () =>
-        this.ops.setRemoteUrl(repoRoot, name, url, push === true),
+      await this.withNotify(
+        i18n.t('host.editingUrl', name, push ? i18n.t('common.push') : i18n.t('common.pull')),
+        () => this.ops.setRemoteUrl(repoRoot, name, url, push === true),
       );
       await this.store.touch(repoRoot);
     });
     this.router.register('remote:fetch', async ({ repoRoot, remote }) => {
-      const r = await this.withNotify(`正在同步 ${remote} 的引用…`, () =>
+      const r = await this.withNotify(i18n.t('host.syncing', remote), () =>
         this.ops.fetchRemote(repoRoot, remote),
       );
       await this.store.touch(repoRoot);
       // fetch 的输出（含 stderr 进度行）汇总为可读摘要；无输出即已最新
-      return summarizeGitOutput(`${r.stdout}\n${r.stderr}`) || `${remote} 已是最新`;
+      return summarizeGitOutput(`${r.stdout}\n${r.stderr}`) || i18n.t('host.remoteUpToDate', remote);
     });
 
     this.router.register('tag:list', ({ repoRoot }) => this.ops.tags(repoRoot));
     this.router.register('tag:create', async ({ repoRoot, name, ref, message }) => {
-      await this.withNotify(`正在创建标签 ${name}…`, () =>
+      await this.withNotify(i18n.t('host.creatingTag', name), () =>
         this.ops.createTag(repoRoot, name, ref, message),
       );
       await this.store.touch(repoRoot);
     });
     this.router.register('tag:delete', async ({ repoRoot, name }) => {
-      await this.withNotify(`正在删除标签 ${name}…`, () => this.ops.deleteTag(repoRoot, name));
+      await this.withNotify(i18n.t('host.deletingTag', name), () => this.ops.deleteTag(repoRoot, name));
       await this.store.touch(repoRoot);
     });
 
     this.router.register('merge:run', async ({ repoRoot, ref, noFf, ffOnly, noCommit }) => {
-      await this.withNotify(`正在合并 ${ref}…`, () =>
+      await this.withNotify(i18n.t('host.merging', ref), () =>
         this.ops.merge(repoRoot, ref, { noFf, ffOnly, noCommit }),
       );
       await this.store.touch(repoRoot);
@@ -761,7 +778,7 @@ export class PanelManager {
       await this.store.touch(repoRoot);
     });
     this.router.register('cherryPick:run', async ({ repoRoot, hashes }) => {
-      await this.withNotify('正在拣选提交…', () => this.ops.cherryPick(repoRoot, hashes));
+      await this.withNotify(i18n.t('host.cherryPicking'), () => this.ops.cherryPick(repoRoot, hashes));
       await this.store.touch(repoRoot);
     });
     this.router.register('cherryPick:abort', async ({ repoRoot }) => {
@@ -773,7 +790,7 @@ export class PanelManager {
       await this.store.touch(repoRoot);
     });
     this.router.register('rebase:run', async ({ repoRoot, ref }) => {
-      await this.withNotify(`正在变基到 ${ref}…`, () => this.ops.rebase(repoRoot, ref));
+      await this.withNotify(i18n.t('host.rebasing', ref), () => this.ops.rebase(repoRoot, ref));
       await this.store.touch(repoRoot);
     });
     this.router.register('rebase:abort', async ({ repoRoot }) => {
@@ -789,31 +806,31 @@ export class PanelManager {
       await this.store.touch(repoRoot);
     });
     this.router.register('reset:run', async ({ repoRoot, ref, mode }) => {
-      await this.withNotify(`正在重置到 ${ref.slice(0, 7)}（${mode}）…`, () =>
+      await this.withNotify(i18n.t('host.resetting', ref.slice(0, 7), mode), () =>
         this.ops.reset(repoRoot, ref, mode),
       );
       await this.store.touch(repoRoot);
     });
     this.router.register('revert:run', async ({ repoRoot, hash, noCommit }) => {
-      await this.withNotify('正在还原提交…', () => this.ops.revert(repoRoot, hash, noCommit));
+      await this.withNotify(i18n.t('host.reverting'), () => this.ops.revert(repoRoot, hash, noCommit));
       await this.store.touch(repoRoot);
     });
 
     this.router.register('stash:list', ({ repoRoot }) => this.ops.stashList(repoRoot));
     this.router.register('stash:push', async ({ repoRoot, message, paths }) => {
-      await this.withNotify('正在保存 stash…', () => this.ops.stashPush(repoRoot, message, paths));
+      await this.withNotify(i18n.t('host.savingStash'), () => this.ops.stashPush(repoRoot, message, paths));
       await this.store.touch(repoRoot);
     });
     this.router.register('stash:apply', async ({ repoRoot, index }) => {
-      await this.withNotify('正在应用 stash…', () => this.ops.stashApply(repoRoot, index));
+      await this.withNotify(i18n.t('host.applyingStash'), () => this.ops.stashApply(repoRoot, index));
       await this.store.touch(repoRoot);
     });
     this.router.register('stash:pop', async ({ repoRoot, index }) => {
-      await this.withNotify('正在恢复 stash…', () => this.ops.stashPop(repoRoot, index));
+      await this.withNotify(i18n.t('host.poppingStash'), () => this.ops.stashPop(repoRoot, index));
       await this.store.touch(repoRoot);
     });
     this.router.register('stash:drop', async ({ repoRoot, index }) => {
-      await this.withNotify('正在删除 stash…', () => this.ops.stashDrop(repoRoot, index));
+      await this.withNotify(i18n.t('host.droppingStash'), () => this.ops.stashDrop(repoRoot, index));
       await this.store.touch(repoRoot);
     });
 
@@ -1045,7 +1062,7 @@ export class PanelManager {
       // ref 传 '' 表示 index（暂存）版本——与内置 git 扩展 toGitUri(uri, '') 一致
       const left = this.blobUriFor(abs, staged ? '' : 'HEAD', repoRoot);
       const right = vscode.Uri.file(abs);
-      const title = `${relPath} (${staged ? '已暂存' : '工作区'} ↔ HEAD)`;
+      const title = `${relPath} (${staged ? i18n.t('host.staged') : i18n.t('host.worktree')} ↔ HEAD)`;
       await vscode.commands.executeCommand('vscode.diff', left, right, title, { preview: true });
     });
   }
